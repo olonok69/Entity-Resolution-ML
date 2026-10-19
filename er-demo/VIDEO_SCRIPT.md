@@ -69,13 +69,17 @@ Precision is 0.966, which is lower than I expected. When I look at the false mer
 
 **On screen:** `features()` in `03_ml_recordlinkage.py`, then the printed AP and cluster metrics.
 
-**Say:** "If stewards give me labels, I can train a classifier on pair features. Average precision is 0.9998, basically perfect. But turn pairs into clusters and there are still 142 wrong pairs, because one bad edge joins two whole clusters. That is why I always evaluate clusters with B-cubed, not just pairs."
+**Say:** "If stewards give me labels, I can train a classifier instead. Each candidate pair becomes one row of numbers: how similar the first names are, the surnames, does the date of birth agree, the phone, the postcode, and a TF-IDF similarity of the whole name. For Thomsa Datson and Thomas Dawson that is 0.97 for the first name, 0.91 for the surname, and ones for date of birth, phone and postcode. The label is one if they are the same person. Gradient boosting learns from those rows, and unlike Fellegi-Sunter it can learn combinations, like a shared phone meaning less when the surname is different.
+
+Two traps. Split train and test by person, not by pair, or the same record appears on both sides and the score is too good. And check calibration: when the model says 0.9, is it right nine times in ten? Here it is, with an error of 0.4 points. Average precision is 0.9998, basically perfect. But turn pairs into clusters and there are still 142 wrong pairs, because one bad edge joins two whole clusters. That is why I always evaluate clusters with B-cubed, not just pairs."
 
 ## 7. Graphs: cannot-link and min-cut repair (10:30, 2 min)
 
 **On screen:** diagram slide of a chained cluster with a cut, `repair()` and `cannot_link()` in `04_graph_resolution.py`, the before/after lines, then `shared_identifiers.csv`.
 
-**Say:** "Think of records as nodes and matches as edges. A customer is a connected component. Now add business knowledge: two records with different dates of birth cannot be the same person. When a component contains such a pair, I run a minimum cut: the cheapest set of edges that separates them. The weak bridge goes, the strong core stays. False-merge pairs drop from 198 to 12, and recall only moves from 0.965 to 0.961.
+**Say:** "Think of records as nodes and matches as edges, and give every edge its evidence in bits, the same match weight Splink computed. A customer is a connected component: everything you can reach by following edges. That is also the danger. If A matches B and B matches C, A and C end up together even if they share nothing. Here is a real one: two Thomas Joneses and three Stanley Joneses, joined by one weak 6.6-bit edge from a shared family email.
+
+Now add business knowledge as cannot-link rules: two records with different dates of birth cannot be the same person. 42 of the 2,712 components break a rule. For each one I run a minimum cut: the set of edges with the fewest total bits that separates the conflicting records. The 6.6-bit bridge goes, the 59.5-bit edge between the two identical Thomas records never does. Using bits matters: probabilities all saturate near 1, so the cut could not tell a strong edge from a weak one. 80 edges are cut, false-merge pairs drop from 198 to 12, and recall only moves from 0.965 to 0.962.
 
 The same graph gives me something else: emails connected to more than one person. Here 31 of them are family mailboxes. That list goes to the stewards and into the blocking exclusion list."
 

@@ -10,7 +10,9 @@ This script:
   2. adds cannot-link constraints: two records with conflicting DOBs, or clearly different
      first names with no matching DOB, cannot be the same person, whatever the model says
   3. repairs any component that holds a cannot-link pair with a weighted minimum cut,
-     which removes the cheapest set of edges that separates the conflicting records
+     which removes the cheapest set of edges that separates the conflicting records.
+     Edge capacity is the evidence in bits (Splink's match weight, or the log-odds of the
+     ML probability), because probabilities near 1.0 all look the same
   4. builds the identifier graph (records <-> emails / phones) and flags identifiers shared
      by more than one resolved person: the "generic identifier" list a steward needs
   5. evaluates before and after repair with the same metrics as every other approach
@@ -23,6 +25,7 @@ from itertools import combinations
 from pathlib import Path
 
 import networkx as nx
+import numpy as np
 import pandas as pd
 from rapidfuzz.distance import JaroWinkler
 
@@ -63,12 +66,22 @@ def cannot_link(r1, r2) -> bool:
     return dob_conflict(r1.dob, r2.dob) or name_conflict(r1, r2)
 
 
+def evidence_bits(p: float) -> float:
+    """Match probability -> log-odds in bits, the strength of the evidence behind an edge.
+
+    Probabilities saturate: 0.99999 and 0.999999999 both look like 1.0, yet the second edge
+    has ten more bits of evidence. Cutting on bits keeps strong edges and removes weak ones.
+    """
+    p = min(max(p, 1e-12), 1 - 1e-12)
+    return max(float(np.log2(p / (1 - p))), 0.01)
+
+
 def build_graph(ids, edges: pd.DataFrame) -> nx.Graph:
-    """Record graph: every record is a node, accepted pairs are edges weighted by probability."""
+    """Record graph: every record is a node, accepted pairs are edges weighted by evidence bits."""
     g = nx.Graph()
     g.add_nodes_from(ids)
-    for a, b, p in edges[["id_l", "id_r", "p"]].itertuples(index=False):
-        g.add_edge(a, b, weight=float(p))
+    for a, b, w in edges[["id_l", "id_r", "bits"]].itertuples(index=False):
+        g.add_edge(a, b, weight=float(w))
     return g
 
 
@@ -139,10 +152,11 @@ def main():
 
     splink = pd.read_csv(RES / "pairs_splink.csv")
     splink = splink[splink.match_probability >= SPLINK_THRESHOLD].rename(
-        columns={"unique_id_l": "id_l", "unique_id_r": "id_r", "match_probability": "p"}
+        columns={"unique_id_l": "id_l", "unique_id_r": "id_r", "match_weight": "bits"}
     )
     ml = pd.read_csv(RES / "pairs_ml_features.csv")
-    ml = ml[ml.ml_probability >= ML_THRESHOLD].rename(columns={"ml_probability": "p"})
+    ml = ml[ml.ml_probability >= ML_THRESHOLD]
+    ml = ml.assign(bits=ml.ml_probability.map(evidence_bits))
 
     results, final = [], {}
     for name, edges in [("splink", splink), ("ml", ml)]:

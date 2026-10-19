@@ -20,7 +20,7 @@ The slide deck [`slides/customer-identity-resolution.pptx`](slides/customer-iden
 03:00 Standardisation and blocking
 05:00 Rules and fuzzy matching
 06:30 Splink: Fellegi-Sunter without labels
-09:00 Supervised ML and why pair metrics lie
+09:30 Supervised ML and why pair metrics lie
 10:30 Graphs: cannot-link constraints and min-cut repair
 12:30 MDM: golden record, crosswalk, stewardship
 14:00 Customer spine and the identity hierarchy
@@ -53,15 +53,19 @@ The slide deck [`slides/customer-identity-resolution.pptx`](slides/customer-iden
 
 **Say:** "The classic approach: a weighted fuzzy score, two thresholds for auto-match and review, and Union-Find to turn pairs into customers. F1 is 0.93. It is easy to explain, but I picked every weight by hand, and every new source means re-tuning."
 
-## 5. Splink: Fellegi-Sunter without labels (06:30, 2.5 min)
+## 5. Splink: Fellegi-Sunter without labels (06:30, 3 min)
 
-**On screen:** the worked example slide (weights adding up), `train()` in `02_splink.py`, then `splink_match_weights.html` and `splink_waterfall_example.html`.
+**On screen:** the two Fellegi-Sunter slides (fields, levels, m and u; then the bits adding up), `train()` in `02_splink.py`, then `splink_m_u_parameters.html`, then `splink_match_weights.html` and `splink_waterfall_example.html`.
 
-**Say:** "Splink learns the weights. For every field it estimates two probabilities: how often it agrees for true matches, m, and for random pairs, u. The weight is log2 of m over u, and the weights add up. u comes from random pairs, m from expectation-maximisation, so I need no labels at all. And it explains itself: this waterfall shows exactly which fields pushed this pair up or down.
+**Say:** "Splink learns the weights instead of me guessing them. It compares the two records one field at a time: first name, surname, date of birth, email and so on. For each field it has a small ladder of agreement levels: exact, a small typo, further apart, completely different, or missing.
+
+For every level it learns two numbers. m: of all the pairs that really are the same person, how many land on this level? For the first name, 68% agree exactly. u: of all the pairs that are different people, how many land on it just by coincidence? Only half a percent share a first name. Divide m by u, take log base 2, and you get bits of evidence: plus 7 for an exact first name, minus 3 for a different one, zero if it is missing.
+
+Every pair starts at minus 12 bits, because only one random pair in four and a half thousand is a match. Add the bits for each field, convert to a probability, done. u comes from random pairs, which are almost never matches, and m from expectation-maximisation, so I need no labels at all. And it explains itself: this waterfall chart is exactly that sum, bar by bar, for one pair.
 
 Precision is 0.966, which is lower than I expected. When I look at the false merges, 110 of the 198 are people from the same household. Same address, same surname, same family email. The model is right that this is strong evidence; it is just evidence for a household, not for a person. Keep that in mind."
 
-## 6. Supervised ML and why pair metrics lie (09:00, 1.5 min)
+## 6. Supervised ML and why pair metrics lie (09:30, 1 min)
 
 **On screen:** `features()` in `03_ml_recordlinkage.py`, then the printed AP and cluster metrics.
 

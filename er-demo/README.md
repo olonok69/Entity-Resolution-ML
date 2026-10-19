@@ -1,32 +1,53 @@
-# Customer matching demo: fuzzy matching, Splink, ML, Zingg and a mini MDM
+# Customer identity resolution demo: fuzzy matching, Splink, ML, graphs, MDM, customer spine and MLOps
 
-Handover doc for the demo prepared for the Databricks customer-matching role (Oct 2026).
-Everything runs on a laptop in about 30 seconds, on synthetic data with known truth, so every number below is measured, not claimed.
+Handover doc for the demo prepared for the customer identity resolution role (Senior Data Scientist / Data Engineer, Oct 2026).
+Everything runs on a laptop in under a minute, on synthetic data with known truth, so every number below is measured, not claimed.
+
+For the presenter's runbook, the study notes and the interview questions, see [DEMO_GUIDE.md](DEMO_GUIDE.md). For the YouTube recording, see [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md).
 
 ## 1. What is in here
 
 | Step | File | What it shows | Ran here? |
 |---|---|---|---|
-| Data | `data/generate_data.py` | 4,000 fake UK people spread over CRM, WEB and BILLING systems, giving 8,149 records with typos, nicknames, swapped names, moved addresses, missing fields and phone/postcode formats. Also a new batch of 400 records for the incremental test. | Yes |
+| Data | `data/generate_data.py` | 4,000 fake UK people spread over CRM, WEB and BILLING systems, giving 8,192 records with typos, nicknames, swapped names, moved addresses, missing fields and phone/postcode formats. About 10% of people share a home with someone else (183 households), often with the same surname and sometimes a family email. Also a new batch of 400 records for the incremental test. | Yes |
 | Standardise | `common/standardise.py` | Name cleaning, nickname canonicalisation, email/phone/postcode normalisation, metaphone codes | Yes |
 | Metrics | `common/evaluate.py` | Pairwise precision/recall/F1, B-cubed, blocking recall (pair completeness), Union-Find clustering | Yes |
 | 1. Rules + fuzzy | `01_rules_rapidfuzz.py` | Blocking, a weighted rapidfuzz score, auto-match and review thresholds, connected components. This is the classic hand-built matcher. | Yes |
 | 2. Splink | `02_splink.py` | Probabilistic Fellegi-Sunter model trained with EM and **no labels**, term-frequency adjustment, threshold sweep, charts (match weights, waterfall) | Yes, Splink 5.0 on DuckDB |
 | 3. Supervised ML | `03_ml_recordlinkage.py` | `recordlinkage` pair features plus a char n-gram TF-IDF cosine, gradient boosting with cross-fitting by entity. This is "ML where rules fall short". | Yes |
-| 4. Mini MDM | `04_mdm.py` | Stable customer ids, golden records with survivorship and field-level provenance, crosswalk, SCD2 history, review queue, steward approve/reject, incremental matching with the saved Splink model, GDPR erasure | Yes, DuckDB file `results/mdm.duckdb` |
-| 5. Comparison | `05_compare.py` | Writes `results/comparison.md` | Yes |
+| 4. Graph resolution | `04_graph_resolution.py` | Record graph with networkx, cannot-link constraints (conflicting DOB, clearly different first name), weighted **minimum-cut repair** of chained clusters, and an identifier graph that flags emails/phones shared by several people | Yes |
+| 5. Mini MDM | `05_mdm.py` | Stable customer ids, golden records with survivorship and field-level provenance, crosswalk, SCD2 history, review queue, steward approve/reject/un-merge, incremental matching with the saved Splink model, GDPR erasure | Yes, DuckDB file `results/mdm.duckdb` |
+| 6. Customer spine | `06_customer_spine.py` | Governed identity hierarchy (household → customer → source record), households from an address graph, the `customer_spine` Golden Layer table, PII classification and **data contracts** that block the publish if broken | Yes, same DuckDB file |
+| 7. Identity drift | `07_identity_drift.py` | Re-runs matching on a later snapshot and measures how many customer ids change under three id strategies; **carry-forward** with merge aliases and split handling | Yes |
+| 8. MLOps + feature store | `08_mlops_feature_store.py` | Versioned pair features in a feature store, entity-disjoint evaluation with calibration (Brier, ECE), model registry with a champion/challenger **promotion gate**, label-free monitoring with PSI alerts on a simulated broken feed. Logs to MLflow if it is installed. | Yes, DuckDB file `results/feature_store.duckdb` |
+| 9. Report | `09_compare.py` | Writes `results/comparison.md` with every table below | Yes |
 | Zingg | `zingg/zingg_customers.py` | Zingg config with active learning phases (findTrainingData, label, train, match) | **No.** It needs Spark plus the Zingg jar or Docker image. |
 | Databricks | `databricks/splink_on_databricks.py` | The same Splink model on SparkAPI, with Delta tables in Unity Catalog and MLflow logging of model and KPIs | **No.** There is no workspace here. |
 
-## 2. How to run
+## 2. How the demo covers the role
 
-For a PowerShell-ready runbook, walkthrough, and optional un-merge exercise, see [DEMO_GUIDE.md](DEMO_GUIDE.md).
+| What the role asks for | Where the demo shows it |
+|---|---|
+| Graph-based techniques and entity resolution | `04_graph_resolution.py`: record graph, cannot-link constraints, min-cut repair, identifier graph. `06_customer_spine.py`: households as connected components of a customer-address graph. |
+| Record linkage and fuzzy matching | `01_rules_rapidfuzz.py` (rapidfuzz, blocking, thresholds), `02_splink.py` (Fellegi-Sunter), `common/standardise.py` |
+| ML-based matching where deterministic rules are insufficient | `03_ml_recordlinkage.py` (supervised), `02_splink.py` (unsupervised EM), Zingg example (active learning) |
+| Customer-spine architecture and a governed identity hierarchy | `06_customer_spine.py`: `customer_spine`, `identity_hierarchy`, `household`, `column_classification`, data contracts |
+| Reusable framework, reducing duplication and identity drift | Shared `common/` standardisation and metrics used by every step; one saved model reused for batch, incremental and re-runs; `07_identity_drift.py` measures and reduces drift |
+| Matching-quality metrics (accuracy, confidence, model performance) | `common/evaluate.py` (pairwise, B-cubed, blocking recall), threshold sweep, calibration (Brier, ECE), label-free KPIs |
+| Integrating into data platforms and the Golden Layer | `05_mdm.py` golden record + crosswalk, `06_customer_spine.py` publishes the spine, `databricks/` maps it to Delta and Unity Catalog |
+| MLOps: deployment, monitoring, lifecycle | `08_mlops_feature_store.py`: registry, promotion gate, champion alias, PSI monitoring; `databricks/` MLflow logging |
+| Feature stores | `08_mlops_feature_store.py`: versioned pair-feature tables, training and serving read the same features, version check |
+| Customer master data and MDM | `05_mdm.py`: survivorship, provenance, SCD2, steward actions, GDPR erasure |
+
+## 3. How to run
+
+For a PowerShell-ready runbook and the optional un-merge exercise, see [DEMO_GUIDE.md](DEMO_GUIDE.md).
 
 ```bash
 cd er-demo
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-bash run_all.sh          # ~30 s, writes everything to results/
+bash run_all.sh          # ~45 s, writes everything to results/
 ```
 
 Open `results/splink_match_weights.html` and `results/splink_waterfall_example.html` in a browser, and query `results/mdm.duckdb` with DuckDB:
@@ -35,31 +56,50 @@ Open `results/splink_match_weights.html` and `results/splink_waterfall_example.h
 SELECT * FROM golden_record WHERE n_source_records >= 3 LIMIT 5;
 SELECT * FROM xref WHERE customer_id = 'C0000007';
 SELECT * FROM golden_history WHERE customer_id IN (SELECT candidate_customer_id FROM review_queue WHERE status = 'approved');
+SELECT * FROM customer_spine WHERE household_size > 1 ORDER BY household_id LIMIT 6;
+SELECT * FROM identity_hierarchy WHERE parent_id = 'H0000023' OR node_id = 'H0000023';
 ```
 
-Tested versions: splink 5.0.0, duckdb 1.5.6, recordlinkage 0.16, rapidfuzz 3.14.6, scikit-learn 1.9.1, pandas 2.3.3, Python 3.13.
+Tested versions: splink 5.0.0, duckdb 1.5.6, recordlinkage 0.16, rapidfuzz 3.14.6, scikit-learn 1.9.1, networkx 3.7, pandas 2.3.3, Python 3.13.
 
-## 3. Results (seed 42, 8,149 records, 4,000 true people)
+## 4. Results (seed 42, 8,192 records, 4,000 true people, 183 households)
 
 | Method | Pair precision | Pair recall | Pair F1 | B-cubed F1 | Entities found | Largest cluster | False-merge pairs | Missed pairs |
 |---|---|---|---|---|---|---|---|---|
-| Rules + rapidfuzz | 0.943 | 0.916 | 0.929 | 0.972 | 4,258 | 14 | 320 | 486 |
-| Splink, unsupervised, p ≥ 0.95 | **0.993** | 0.965 | **0.979** | 0.989 | 4,131 | **7** | **40** | 202 |
-| recordlinkage + gradient boosting, supervised, p ≥ 0.9 | 0.976 | **0.979** | 0.978 | **0.992** | 4,069 | 12 | 139 | **119** |
+| Rules + rapidfuzz | 0.952 | 0.913 | 0.932 | 0.971 | 4,278 | 9 | 267 | 510 |
+| Splink, unsupervised, p ≥ 0.95 | 0.966 | 0.965 | 0.966 | 0.985 | 4,102 | 7 | 198 | 205 |
+| recordlinkage + gradient boosting, supervised, p ≥ 0.9 | 0.976 | **0.975** | 0.975 | 0.990 | 4,082 | 7 | 142 | **145** |
+| Splink + graph repair | 0.998 | 0.961 | 0.979 | 0.989 | 4,148 | 6 | 12 | 229 |
+| ML + graph repair | **0.998** | 0.972 | **0.985** | **0.992** | 4,108 | 6 | **9** | 162 |
 
-The blocking keeps 96.8% of true pairs and compares only 6,200 of the 33 million possible pairs.
+The blocking keeps 96.5% of true pairs and compares only 6,405 of the 33.5 million possible pairs.
 
-**Mini MDM, incremental batch of 400 new records:**
-- 195 records were auto-linked to existing customers, 205 became new customers, and 2 went to review.
-- 194 of the 200 returning customers were attached correctly, and 1 was attached to the wrong customer.
+**Graph repair.** 110 of Splink's 198 false-merge pairs are two people from the same household: same address, same surname and often a family email. Cannot-link constraints split 46 Splink clusters by cutting 85 edges, and false-merge pairs fall from 198 to 12 for a loss of 0.4 points of recall. The identifier graph flags 48 emails linked to more than one resolved person; 31 of them really are shared family mailboxes, and the rest point at missed matches a steward should look at.
+
+**Mini MDM, incremental batch of 400 new records:** 198 were auto-linked to existing customers, 202 became new customers and 4 went to review. 197 of the 200 returning customers were attached correctly, and 1 was attached to the wrong customer.
+
+**Customer spine:** 4,348 customers in 4,167 households (177 with more than one person). Household grouping finds 75% of the true same-household pairs at 97% precision. All 7 data contracts pass.
+
+**Identity drift** between run 1 and a later snapshot (5% of records with new contact details, plus the 400 new records):
+
+| Id strategy | Run-1 records whose id changed |
+|---|---|
+| Sequential numbering every run | 56.1% |
+| Member record id as cluster id | 0.87% |
+| Carry-forward by overlap, with aliases | **0.20%** |
+| For context: records whose cluster really changed | 0.51% |
+
+**MLOps, entity-disjoint test set:** logistic regression (v1) scores B-cubed F1 0.987 with ECE 0.012. Gradient boosting (v2) scores 0.993 with ECE 0.004, passes the gate and becomes champion. On the normal batch the score PSI is 0.03 and nothing alerts. On a simulated broken feed (phones missing, initials only) the score PSI is 2.77 and four alerts fire, while the match rate on its own looks *better* (0.98 against 0.89) because a third of the candidate pairs disappeared.
 
 How to read the results:
-- **Splink wins on precision with zero labels.** The EM-trained m/u weights and term-frequency adjustment value an agreement on "Smith" less than an agreement on a rare surname. For customer data, precision matters most, because a false merge is a GDPR incident.
-- **Supervised ML wins on recall, but it needs labels.** Here the labels come from the synthetic truth; in real life they come from data stewards reviewing the grey zone. Its pairwise average precision is about 1.0, yet clusters still chain: 37 bad edges out of 6,200 build clusters of 12–15 records. **Always evaluate clusters, not only pairs.**
+- **Households break unsupervised matching.** Splink's EM learns that address + surname + email agreement is very strong evidence, so two people sharing a home and a mailbox look like one. This is the most common false merge in real customer data, and why "generic identifier" detection matters (we did this at Mars).
+- **Constraints plus a graph fix it cheaply.** A min cut removes the cheapest set of edges between two records that cannot be the same person. Precision goes to 0.998 for both models. For customer data, precision matters most, because a false merge is a GDPR incident.
+- **Supervised ML wins on recall, but it needs labels.** Here the labels come from the synthetic truth; in real life they come from data stewards reviewing the grey zone. Pairwise average precision is about 1.0, yet clusters still chain. **Always evaluate clusters, not only pairs.**
 - **Hand-tuned rules are the weakest and the hardest to maintain**, although they are fully explainable. Use them for the deterministic tier (same email plus same DOB) and let a model do the rest.
-- Most false merges come from two different people sharing a common email pattern (e.g. `john.smith@gmail.com`). That is realistic, and it is why "generic identifier" detection matters (we did this at Mars).
+- **Ids are a product.** A naive rebuild changes the id of over half the customers. Carry-forward keeps 99.8% stable and leaves an alias for every retired id.
+- **Monitor several KPIs.** A broken feed can make a single KPI look better.
 
-## 4. The approaches in one minute each
+## 5. The approaches in one minute each
 
 **Rules + fuzzy (rapidfuzz / fuzzywuzzy, jellyfish, Levenshtein, Jaro-Winkler).** You choose blocking keys, similarity functions, weights and thresholds by hand. It is fast and explainable, but every new source means re-tuning, and the weights are guesses.
 
@@ -70,6 +110,8 @@ How to read the results:
 - Backends are DuckDB (laptop), Spark (Databricks), Athena and Postgres, so the same settings work everywhere.
 - Explainability comes from waterfall charts.
 - `predict_between` handles incremental matching, and the model is saved as JSON for versioning in MLflow.
+
+**Graph resolution (networkx, GraphFrames on Spark, Neo4j / TigerGraph in production).** Records are nodes, accepted matches are weighted edges and a customer is a connected component. Graph methods catch what pair scores miss: chaining through one bad edge, identifiers shared by many people, and household or company hierarchies. Cannot-link constraints plus a minimum cut are a simple, explainable repair; community detection (Louvain, Leiden) and correlation clustering are the next options for very large components.
 
 **Zingg (AGPL community / commercial enterprise).** It is ML-first with active learning:
 - It shows you the most uncertain pairs, and you label about 30–40 matches.
@@ -88,55 +130,65 @@ How to read the results:
 - LLM-as-judge, only on the grey zone and never on every pair, because of cost and PII.
 - Commercial MDM tools (Informatica MDM, Reltio, Tamr, Profisee, Semarchy) when the business wants a steward UI and workflow out of the box.
 
-## 5. The mini MDM: what it does and why
+## 6. The mini MDM and the customer spine: what they do and why
 
-Matching gives you clusters. MDM turns clusters into a **governed customer master** that downstream systems can trust.
+Matching gives you clusters. MDM turns clusters into a **governed customer master** that downstream systems can trust, and the spine is the thin table everyone joins to.
 
-| MDM concept | In `04_mdm.py` | Production on Databricks |
+| Concept | In the demo | Production on Databricks |
 |---|---|---|
 | Stable master id | `customer_id` from a DuckDB sequence; stable for the database lifetime (the demo's full run resets the database) | Identity table in Delta, never regenerated |
+| Id carry-forward | `07_identity_drift.py`: overlap matching, split and merge events, `id_alias.csv` | Same logic as a MERGE on the identity table, aliases in Delta |
 | Crosswalk | `xref(source_record_id → customer_id, probability, method)` | Delta table consumed by CRM, billing and analytics |
 | Survivorship | Names and DOB: most frequent value, then source priority (CRM > BILLING > WEB). Contact data: most recent. | Same rules in Spark SQL, configured per field in a table |
 | Provenance | JSON per golden record: which source and which rule won each field | Same, plus Unity Catalog lineage |
 | History | `golden_history` with `valid_to` (SCD2) | Delta SCD2 / Change Data Feed |
+| Identity hierarchy | `identity_hierarchy(node_id, node_type, parent_id, rule, confidence)`: household → customer → source | Same table; households can also come from a graph job (GraphFrames) |
+| Customer spine / Golden Layer | `customer_spine`: one row per customer with household, golden attributes, source keys, weakest-link probability, model version | Gold Delta table in Unity Catalog, the only customer table downstream teams use |
+| Governance | `column_classification` for PII, 7 data contracts that stop the publish | UC tags and column masks, DLT expectations or Lakeflow data quality rules |
 | Grey zone | `review_queue` with p between 0.5 and 0.95; the record becomes a new customer until a steward decides | Databricks App or Streamlit for stewards; their decisions become training and evaluation labels |
-| Steward actions | `approve_review` merges two customers; `reject_review` rejects a candidate; `unmerge_record` moves one source record to a new customer, rebuilds both golden records, versions history and records the reason in `steward_audit` | Same, with an audit trail |
+| Steward actions | `approve_review`, `reject_review`, `unmerge_record` with a reason in `steward_audit` | Same, with an audit trail |
 | Incremental | New records scored only against existing ones with the **saved** Splink model (`predict_between`) | Workflow task on Change Data Feed |
 | GDPR erasure | `erase_customer` removes source records, crosswalk, golden record and history | Same, plus Delta `VACUUM` and UC column masks on PII |
 
-Still not covered: merge-on-match across customers already in the master (re-clustering) and hierarchy/households. The demo can un-merge an individual source record after a wrong attachment; full cluster splitting and re-clustering are the next things to build.
+Still not covered: re-clustering customers already in the master after a steward merge, company (B2B) hierarchies, and a steward UI.
 
-## 6. How this maps to Databricks
+## 7. How this maps to Databricks
 
 1. **Bronze:** one Delta table per source, loaded with Auto Loader or Lakeflow.
 2. **Silver:** `customer_std`, with the same standardisation as `common/standardise.py`.
 3. **Matching job:** Splink on `SparkAPI` (`databricks/splink_on_databricks.py`) writes `pairs`, `clusters` and `review_queue` to Unity Catalog.
-4. **MDM job:** survivorship builds `golden_record`, `xref` and `golden_history`.
-5. **Incremental:** Change Data Feed on silver, then `predict_between`, then attach, create or review.
-6. **MLflow:**
-   - Log the Splink model JSON and the parameters.
-   - Log the unlabelled KPIs: entities, max cluster size, review queue size, and match rate per source.
-   - Once stewards have labelled pairs, also log pairwise and B-cubed precision/recall against the golden set.
-   - Promote a new model to the `champion` alias only when it beats the current one.
-7. **Asset Bundle** for dev/test/prod, and **Workflows** for scheduling.
-8. **Feature store (optional):** standardised attributes and embeddings as a feature table keyed by `unique_id`, so training and incremental scoring use the same features.
+4. **Graph job:** cannot-link repair and household components with GraphFrames, writing repaired clusters and `shared_identifiers`.
+5. **MDM job:** survivorship builds `golden_record`, `xref` and `golden_history`; ids are carried forward, never regenerated.
+6. **Gold / Golden Layer:** `customer_spine` and `identity_hierarchy`, published only when the data contracts pass.
+7. **Incremental:** Change Data Feed on silver, then `predict_between`, then attach, create or review.
+8. **Feature store:** standardised attributes and pair features as Unity Catalog feature tables keyed by `unique_id` and `(id_l, id_r)`, so training and incremental scoring use the same features.
+9. **MLflow:**
+   - Log the model, the parameters and the feature-set version.
+   - Log the unlabelled KPIs every run: entities, max cluster size, review queue size, match rate per source, score PSI and id drift.
+   - Once stewards have labelled pairs, also log pairwise and B-cubed precision/recall and calibration against the golden set.
+   - Promote a new model to the `champion` alias only when it passes the gate.
+10. **Asset Bundle** for dev/test/prod, and **Workflows** for scheduling.
 
-## 7. Ten-minute demo script for the call
+## 8. Ten-minute demo script for the call
 
-1. **(1 min)** "Three systems, 8k records, 4k real people. I generated them so I know the truth and can measure quality, which you never can in production."
-2. **(2 min)** Rules + rapidfuzz: "This is what I built before, at CloserStill and Mars: blocking, weighted fuzzy scoring, thresholds, Union-Find. F1 is 0.93, and there is a 14-record cluster from chaining."
-3. **(3 min)** Splink: "Same blocking, but the weights are learned with EM and no labels. Precision goes from 0.94 to 0.99, and the largest cluster drops to 7." Then open the waterfall chart: "This is how I explain a match to a data steward."
-4. **(1 min)** ML: "With labels from stewards, a classifier gets the best recall. But look: pairwise AP is 1.0 and clusters still chain, so I evaluate at cluster level, with B-cubed."
-5. **(2 min)** MDM: "Clusters become a customer master: stable ids, survivorship with provenance, crosswalk, history, review queue, incremental with the saved model, and GDPR erasure."
-6. **(1 min)** Databricks mapping (section 6), and close with: "for your framework I'd start with Splink on Spark, add the steward loop for labels, and only add an ML or Zingg layer where Splink's grey zone is big."
+1. **(1 min)** "Three systems, 8k records, 4k real people, 183 households. I generated them so I know the truth and can measure quality, which you never can in production."
+2. **(1 min)** Rules + rapidfuzz: "This is what I built before, at CloserStill and Mars: blocking, weighted fuzzy scoring, thresholds, Union-Find. F1 is 0.93."
+3. **(2 min)** Splink: "Same blocking, but the weights are learned with EM and no labels." Open the waterfall chart: "This is how I explain a match to a data steward." Then: "Precision is only 0.966, and over half the false merges are households."
+4. **(1 min)** ML: "With labels from stewards, a classifier gets the best recall. Pairwise AP is 1.0 and clusters still chain, so I evaluate at cluster level, with B-cubed."
+5. **(2 min)** Graph: "A customer is a connected component. Two records with different DOBs cannot be the same person, so I cut the cheapest edges between them. False merges go from 198 to 12. The identifier graph gives the steward the shared-mailbox list."
+6. **(1 min)** MDM and spine: "Clusters become a governed master: survivorship with provenance, crosswalk, history, a household → customer → source hierarchy, and a spine table that is only published when its contracts pass."
+7. **(1 min)** Drift and MLOps: "A naive rebuild changes 56% of ids; carry-forward changes 0.2%. The model has a registry, a promotion gate and PSI monitoring; a broken feed fires four alerts while the match rate looks better."
+8. **(1 min)** Close: "For your framework I'd start with Splink on Spark plus graph constraints, add the steward loop for labels, and only add an ML layer where the grey zone is big."
 
-## 8. Honest limits
+## 9. Honest limits
 
-- **Synthetic data is cleaner than real data.** Real data has shared family emails, company records mixed with people, transliterated names and junk values like `test@test.com`. Expect lower numbers.
+- **Synthetic data is cleaner than real data.** Real data has company records mixed with people, transliterated names, junk values like `test@test.com` and much larger households. Expect lower numbers.
 - **Some Splink levels are untrained.** Splink warns that a few `dob` and `postcode` levels stay untrained, because the generator never produces near-miss DOBs or same-sector postcodes. Real data trains them.
+- **The cannot-link rules are simple.** They trust the DOB. In real data a wrong DOB on one source would split a real person; weigh the rule by source quality.
+- **Households use any address a customer ever had.** That finds more households but would also link a person to a previous occupant of their home. Production would use only current or recent addresses.
 - **Zingg and the Databricks notebook were not executed here.** Check them against the installed versions before showing them live.
-- **The MDM is a teaching model, not a product.** It supports a steward-driven single-record un-merge, but has no general cluster-split workflow, concurrency control or UI.
+- **The MDM, spine and registry are teaching models, not products.** No concurrency control, steward UI or access control; the registry is a JSON file.
 
-## 9. Files after a run
+## 10. Files after a run
 
-`results/comparison.md`, `metrics_*.csv`, `clusters_*.csv`, `pairs_splink.csv`, `review_queue_*.csv`, `splink_model.json`, `splink_*.html`, `splink_threshold_sweep.csv`, `pairs_ml_features.csv`, `mdm.duckdb`, `mdm_golden_record.csv`, `mdm_xref.csv`, `mdm_review_queue.csv`.
+`results/comparison.md`, `metrics_*.csv`, `clusters_*.csv`, `pairs_splink.csv`, `review_queue_*.csv`, `splink_model.json`, `splink_*.html`, `splink_threshold_sweep.csv`, `pairs_ml_features.csv`, `shared_identifiers.csv`, `mdm.duckdb`, `mdm_golden_record.csv`, `mdm_xref.csv`, `mdm_review_queue.csv`, `customer_spine.csv`, `identity_hierarchy.csv`, `spine_contracts.csv`, `identity_drift.csv`, `id_alias.csv`, `id_events.csv`, `feature_store.duckdb`, `model_registry/`, `model_versions.csv`, `monitoring_report.csv`.

@@ -3,8 +3,12 @@
 Each real person ("entity") appears in 1..3 systems (CRM, WEB, BILLING) and sometimes twice
 in the same system. Every copy gets realistic noise: typos, nicknames, swapped names,
 missing values, different phone / postcode formats, moved address, DOB day-month swap.
+About 10% of people also live with another person (a household): same address, often the
+same surname and sometimes a shared family email. That is what makes the hierarchy and
+"generic identifier" problems real.
 
-Output: data/customers.csv  (true_entity_id is ONLY for evaluation, never used to match)
+Output: data/customers.csv  (true_entity_id / true_household_id are ONLY for evaluation,
+                             never used to match)
         data/new_batch.csv  (new records arriving later, for the incremental MDM demo)
 """
 
@@ -17,6 +21,7 @@ from faker import Faker
 SEED = 42
 N_ENTITIES = 4000
 N_NEW_BATCH = 400
+HOUSEHOLD_RATE = 0.10  # share of people who get a housemate
 
 random.seed(SEED)
 fake = Faker("en_GB")
@@ -157,8 +162,33 @@ def noisy_copy(ent: dict, source: str, rec_no: int) -> dict:
     return r
 
 
+def add_households(entities: list[dict], rng: random.Random) -> None:
+    """Pair some people into households: shared address, often shared surname or email.
+
+    Uses its own random generator so the person-level noise stream stays reproducible.
+    """
+    for e in entities:
+        e["true_household_id"] = f"H{e['true_entity_id']:05d}"
+    pool = list(range(len(entities)))
+    rng.shuffle(pool)
+    n_pairs = int(len(entities) * HOUSEHOLD_RATE / 2)
+    for k in range(n_pairs):
+        head, member = entities[pool[2 * k]], entities[pool[2 * k + 1]]
+        for f in ("address", "city", "postcode"):
+            member[f] = head[f]
+        member["true_household_id"] = head["true_household_id"]
+        if rng.random() < 0.6:  # partner or adult child with the same surname
+            member["last_name"] = head["last_name"]
+            local, domain = member["email"].split("@")
+            member["email"] = f"{member['first_name'].lower()}.{head['last_name'].lower()}@{domain}"
+        if rng.random() < 0.25:  # one family mailbox used by both people
+            fam = f"the{head['last_name'].lower()}s@{head['email'].split('@')[1]}"
+            head["email"] = member["email"] = fam
+
+
 def main():
     entities = [make_entity(i) for i in range(N_ENTITIES + N_NEW_BATCH)]
+    add_households(entities, random.Random(SEED + 1))
     rows, rec_no = [], 0
     for ent in entities[:N_ENTITIES]:
         n_sources = random.choices([1, 2, 3], weights=[0.35, 0.40, 0.25])[0]
@@ -192,6 +222,7 @@ def main():
         "postcode",
         "updated_at",
         "true_entity_id",
+        "true_household_id",
     ]
     df = (
         pd.DataFrame(rows)[cols]
@@ -202,6 +233,8 @@ def main():
     pd.DataFrame(new_rows)[cols].to_csv(OUT / "new_batch.csv", index=False)
     print(f"customers.csv: {len(df)} records for {df.true_entity_id.nunique()} people")
     print(f"new_batch.csv: {len(new_rows)} records")
+    hh = df.groupby("true_household_id").true_entity_id.nunique()
+    print(f"households with 2 people: {(hh > 1).sum()}")
 
 
 if __name__ == "__main__":

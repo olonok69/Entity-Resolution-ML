@@ -9,7 +9,9 @@ What an MDM hub does after the matching:
   - incremental matching of new records against the master, using the trained Splink model
   - GDPR erasure across master, crosswalk and history
 
-Run 02_splink.py first (it writes results/clusters_splink.csv and results/splink_model.json).
+Run 02_splink.py first (it writes results/splink_model.json) and 04_graph_resolution.py
+(it writes results/clusters_graph.csv, the Splink clusters after cannot-link repair; without
+it the plain results/clusters_splink.csv is used).
 Tables live in results/mdm.duckdb, so you can inspect them with any SQL client.
 """
 
@@ -430,7 +432,11 @@ def main():
     mdm = MiniMDM(db_path)
 
     raw = pd.read_csv(HERE / "data/customers.csv", dtype=str)
-    clusters = pd.read_csv(RES / "clusters_splink.csv")
+    cluster_file = RES / "clusters_graph.csv"
+    if not cluster_file.exists():
+        cluster_file = RES / "clusters_splink.csv"
+    clusters = pd.read_csv(cluster_file)
+    print("initial clusters from", cluster_file.name)
     mdm.initial_load(raw, clusters)
     print(
         "initial load:",

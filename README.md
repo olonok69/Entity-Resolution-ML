@@ -1,11 +1,12 @@
 # Customer Entity Resolution Demo
 
-A laptop-sized entity-resolution and mini-MDM demo using synthetic UK customer records with known ground truth. It compares hand-built fuzzy rules, unsupervised Splink, and a supervised pair classifier, then shows incremental matching and customer-master workflows.
+A laptop-sized customer identity resolution demo using synthetic UK customer records with known ground truth. It compares hand-built fuzzy rules, unsupervised Splink and a supervised pair classifier, repairs clusters with graph techniques, then builds a mini MDM, a governed customer spine, stable ids across runs, and the MLOps around the ML matcher (feature store, model registry, monitoring).
 
 ## Start here
 
 - [Project overview and results](er-demo/README.md)
-- [Detailed demo and code walkthrough](er-demo/DEMO_GUIDE.md)
+- [Demo guide: runbook, study notes and interview questions](er-demo/DEMO_GUIDE.md)
+- [Video script](er-demo/VIDEO_SCRIPT.md)
 
 ## Quick start
 
@@ -19,13 +20,17 @@ python -m venv .venv
 .\.venv\Scripts\python.exe 01_rules_rapidfuzz.py
 .\.venv\Scripts\python.exe 02_splink.py
 .\.venv\Scripts\python.exe 03_ml_recordlinkage.py
-.\.venv\Scripts\python.exe 04_mdm.py
-.\.venv\Scripts\python.exe 05_compare.py
+.\.venv\Scripts\python.exe 04_graph_resolution.py
+.\.venv\Scripts\python.exe 05_mdm.py
+.\.venv\Scripts\python.exe 06_customer_spine.py
+.\.venv\Scripts\python.exe 07_identity_drift.py
+.\.venv\Scripts\python.exe 08_mlops_feature_store.py
+.\.venv\Scripts\python.exe 09_compare.py
 ```
 
 On macOS/Linux, create and activate `.venv`, install `requirements.txt`, then run `bash run_all.sh` from `er-demo/`.
 
-The generated CSV inputs and `results/` artifacts are intentionally excluded from Git. Run the generator and pipeline to recreate them. The full `04_mdm.py` demo resets its local DuckDB database each run.
+The generated CSV inputs and `results/` artifacts are intentionally excluded from Git. Run the generator and pipeline to recreate them. `05_mdm.py` resets its local DuckDB database each run, and `08_mlops_feature_store.py` resets the feature store and model registry.
 
 ## Project layout
 
@@ -36,7 +41,7 @@ er-demo/
   databricks/   unexecuted Databricks/SparkAPI example
   zingg/        unexecuted Zingg active-learning example
   results/      generated outputs (git-ignored)
-  01_*.py ...   matching approaches, MDM, and comparison
+  01_*.py ...   matching approaches, graph repair, MDM, spine, drift, MLOps, report
 ```
 
-All records are synthetic. `true_entity_id` is a benchmark label for evaluation and supervised training only; it is not a production matching field. Databricks and Zingg examples require their own runtimes and are not verified by the local pipeline.
+All records are synthetic. `true_entity_id` and `true_household_id` are benchmark labels for evaluation and supervised training only; they are not production matching fields. Databricks and Zingg examples require their own runtimes and are not verified by the local pipeline.

@@ -30,8 +30,22 @@ HERE = Path(__file__).parent
 THRESHOLD = 0.9
 
 
-def features(df: pd.DataFrame, pairs: pd.MultiIndex) -> pd.DataFrame:
-    """Build pairwise field-comparison features plus whole-record TF-IDF cosine."""
+def record_text(df: pd.DataFrame) -> pd.Series:
+    """One string per record for the whole-record TF-IDF feature."""
+    return (
+        df[["first_name", "last_name", "email_user", "postcode", "address"]]
+        .fillna("")
+        .astype(str)
+        .agg(" ".join, axis=1)
+    )
+
+
+def features(df: pd.DataFrame, pairs: pd.MultiIndex, vec=None) -> pd.DataFrame:
+    """Build pairwise field-comparison features plus whole-record TF-IDF cosine.
+
+    `vec` is an already fitted TfidfVectorizer; pass it when scoring new data so serving
+    uses exactly the vocabulary the model was trained with.
+    """
     c = rl.Compare()
     c.string(
         "first_name_canon", "first_name_canon", method="jarowinkler", label="first_jw"
@@ -56,13 +70,9 @@ def features(df: pd.DataFrame, pairs: pd.MultiIndex) -> pd.DataFrame:
     X = c.compute(pairs, df)
 
     # whole-record char n-gram TF-IDF cosine: robust to swapped first/last, typos, formats
-    text = (
-        df[["first_name", "last_name", "email_user", "postcode", "address"]]
-        .fillna("")
-        .astype(str)
-        .agg(" ".join, axis=1)
-    )
-    vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4)).fit(text)
+    text = record_text(df)
+    if vec is None:
+        vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4)).fit(text)
     M = vec.transform(text)
     pos = {rid: i for i, rid in enumerate(df.index)}
     li = [pos[a] for a in pairs.get_level_values(0)]

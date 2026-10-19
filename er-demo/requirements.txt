@@ -6,4 +6,5 @@ recordlinkage>=0.16
 scikit-learn>=1.5
 splink>=5.0
 duckdb>=1.1
+networkx>=3.2
 tabulate

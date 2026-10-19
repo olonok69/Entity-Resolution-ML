@@ -12,7 +12,7 @@
 # MAGIC | DuckDBAPI | SparkAPI |
 # MAGIC | results/*.csv | Delta tables in Unity Catalog: `pairs`, `clusters`, `golden_record`, `xref`, `review_queue` |
 # MAGIC | splink_model.json | MLflow run artifact + registered model alias `champion` |
-# MAGIC | 04_mdm.py incremental | Workflow task on Change Data Feed of the silver table |
+# MAGIC | 05_mdm.py incremental | Workflow task on Change Data Feed of the silver table |
 # MAGIC
 # MAGIC `%pip install splink` (cluster with Spark 3.4+; on serverless use the Splink Spark backend docs).
 
@@ -87,7 +87,7 @@ with mlflow.start_run(run_name="splink_customer_matching") as run:
 # COMMAND ----------
 # MAGIC %md
 # MAGIC Next tasks in the same Workflow (Databricks Asset Bundle):
-# MAGIC 1. `golden_record` + `xref` with survivorship rules (port of `04_mdm.py`, set-based in Spark SQL)
+# MAGIC 1. `golden_record` + `xref` with survivorship rules (port of `05_mdm.py`, set-based in Spark SQL)
 # MAGIC 2. incremental: read Change Data Feed of `customer_std`, `linker.inference.predict_between(existing, new)`
 # MAGIC 3. steward review app (Databricks Apps / Streamlit) writing decisions back to a Delta table = labels
 # MAGIC 4. Unity Catalog column masks on PII columns, lineage for GDPR erasure

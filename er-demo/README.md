@@ -69,16 +69,16 @@ Tested versions: splink 5.0.0, duckdb 1.5.6, recordlinkage 0.16, rapidfuzz 3.14.
 | Rules + rapidfuzz | 0.952 | 0.913 | 0.932 | 0.971 | 4,278 | 9 | 267 | 510 |
 | Splink, unsupervised, p ≥ 0.95 | 0.966 | 0.965 | 0.966 | 0.985 | 4,102 | 7 | 198 | 205 |
 | recordlinkage + gradient boosting, supervised, p ≥ 0.9 | 0.976 | **0.975** | 0.975 | 0.990 | 4,082 | 7 | 142 | **145** |
-| Splink + graph repair | 0.998 | 0.961 | 0.979 | 0.989 | 4,148 | 6 | 12 | 229 |
+| Splink + graph repair | 0.998 | 0.962 | 0.979 | 0.989 | 4,144 | 6 | 12 | 224 |
 | ML + graph repair | **0.998** | 0.972 | **0.985** | **0.992** | 4,108 | 6 | **9** | 162 |
 
 The blocking keeps 96.5% of true pairs and compares only 6,405 of the 33.5 million possible pairs.
 
-**Graph repair.** 110 of Splink's 198 false-merge pairs are two people from the same household: same address, same surname and often a family email. Cannot-link constraints split 46 Splink clusters by cutting 85 edges, and false-merge pairs fall from 198 to 12 for a loss of 0.4 points of recall. The identifier graph flags 48 emails linked to more than one resolved person; 31 of them really are shared family mailboxes, and the rest point at missed matches a steward should look at.
+**Graph repair.** 110 of Splink's 198 false-merge pairs are two people from the same household: same address, same surname and often a family email. Cannot-link constraints split 42 Splink clusters by cutting 80 edges, and false-merge pairs fall from 198 to 12 for a loss of 0.3 points of recall. The identifier graph flags 48 emails linked to more than one resolved person; 31 of them really are shared family mailboxes, and the rest point at missed matches a steward should look at.
 
 **Mini MDM, incremental batch of 400 new records:** 198 were auto-linked to existing customers, 202 became new customers and 4 went to review. 197 of the 200 returning customers were attached correctly, and 1 was attached to the wrong customer.
 
-**Customer spine:** 4,348 customers in 4,167 households (177 with more than one person). Household grouping finds 75% of the true same-household pairs at 97% precision. All 7 data contracts pass.
+**Customer spine:** 4,344 customers in 4,164 households (177 with more than one person). Household grouping finds 75% of the true same-household pairs at 97% precision. All 7 data contracts pass.
 
 **Identity drift** between run 1 and a later snapshot (5% of records with new contact details, plus the 400 new records):
 

@@ -235,23 +235,204 @@ The model is not wrong about the evidence: a shared email, address and surname r
 
 The assumption to mention in an interview: weights are only allowed to add up because the model treats fields as **independent** given match status. Correlated fields (postcode and address, email and name) are therefore double counted, which is one reason supervised models or careful comparison design can do better.
 
-### 3.6 Supervised matching
+### 3.6 Supervised matching, step by step
 
-Labels are pairs marked match / non-match, usually from stewards reviewing the grey zone. Features are field similarities plus anything useful (phonetic equality, whole-record TF-IDF, embeddings). Pitfalls you should name:
+Fellegi-Sunter learns from the data without labels. Supervised matching does the opposite: you show a model pairs whose answer you already know and it learns the rule itself. It is the "ML where deterministic rules are insufficient" in the job description. `03_ml_recordlinkage.py` builds it in five steps.
 
-- **Leakage:** a person appears in many pairs, so a random pair split leaks identity. Split **by entity** (`08` uses a strict entity-disjoint split; `03` uses a cheaper left-record fold).
-- **Class imbalance:** after blocking positives are common, before blocking they are rare. Report average precision, not accuracy.
-- **Calibration:** a threshold of 0.9 only means something if p = 0.9 is right 90% of the time. Measure with Brier score and ECE (section 3.9).
+#### Step 1. The unit of learning is a pair, not a record
 
-### 3.7 Clustering and the graph view
+A model cannot look at one customer record and say who it is. It looks at **two records** and answers one question: *same person or not?* So every training example is a pair, and its **label** is 1 (match) or 0 (non-match).
 
-Matching produces pairs; customers are **clusters**. The usual step is transitive closure: connected components (Union-Find). Matching is not transitive in truth (A≈B and B≈C does not prove A≈C), so one bad edge merges two people: **chaining**. Graph techniques address this:
+The pairs come from the same blocking as the rules matcher (`rules.candidate_pairs`), because scoring all 33.5 million pairs is impossible. That gives 6,405 candidate pairs. The label comes from `true_entity_id`: 1 if both records have the same id. In production that column does not exist; labels come from stewards (Step 7).
 
-- **Cannot-link constraints:** business rules that say two records are different people (conflicting DOB, clearly different first name with no matching DOB). `04_graph_resolution.py` finds components that contain such a pair.
-- **Minimum cut:** with edge capacities = match probability, the min cut is the cheapest set of edges whose removal separates the two conflicting records. It cuts the weak bridge, not the strong core.
-- **Other options:** cluster density checks, edge betweenness, community detection (Louvain, Leiden), correlation clustering, and Splink's own threshold-based clustering.
-- **Identifier graph:** a bipartite graph of records and identifiers (emails, phones). An email linked to several resolved people is a **shared or generic identifier** (a family mailbox, `info@company.com`, `test@test.com`) and should be down-weighted or excluded from blocking. Here 31 of 48 flagged emails are real family mailboxes; the rest point at missed matches.
-- **Hierarchies are graphs too:** households are connected components of a customer-address graph.
+One surprise to understand: **88% of the candidate pairs are matches** (5,639 of 6,405), while among all possible pairs only 0.017% are. Blocking has already thrown away almost all the easy non-matches. The model only has to separate the hard cases that survive blocking.
+
+#### Step 2. Features: turn a pair into a row of numbers
+
+A **feature** is one number that describes how the two records compare on one aspect. `features()` builds 14 of them. The same pair, as the model sees it:
+
+| Record | First name | Surname | DOB | Email | Phone | Address | Postcode |
+|---|---|---|---|---|---|---|---|
+| BILLING-000003 | Thomsa | Datson | 1984-12-28 | (missing) | +44 7890838637 | Sudio 89, Kirsty Oval | SE98 3WD |
+| CRM-000004 | Thomas | Dawson | 1984-12-28 | thomas.dawson@btinternet.com | +44 7890838637 | Studio 89, Kirsty Oval | SE98 3WD |
+
+| Feature | What it measures | Value for this pair |
+|---|---|---|
+| `first_jw` | Jaro-Winkler similarity of canonical first names (0 to 1) | 0.97 (one swapped letter) |
+| `last_jw` | Jaro-Winkler of surnames | 0.91 |
+| `last_lev` | Levenshtein similarity of surnames | 0.83 |
+| `first_phonetic`, `last_phonetic` | Do the Metaphone codes agree? (1/0) | 1 and 0 |
+| `dob_exact` | Same DOB? (1/0, empty if either is missing) | 1 |
+| `dob_lev` | Character similarity of the DOB strings (catches day/month swaps) | 1.0 |
+| `email_qgram`, `email_user_jw` | Similarity of the email and of the part before `@` | 0 (one email is missing) |
+| `phone_exact` | Same phone? | 1 |
+| `postcode_exact`, `postcode_area_exact` | Same full postcode, same area | 1 and 1 |
+| `address_qgram` | q-gram similarity of the street line | 0.91 |
+| `record_tfidf_cos` | Cosine similarity of the whole record as character n-grams | 0.59 |
+| **Label** | Same `true_entity_id`? | **1** |
+
+The last feature is a cheap "embedding": each record's name, email user, postcode and address are joined into one string, cut into character 2-to-4-grams and weighted by TF-IDF (rare n-grams count more). Two records with the same letters in different places, such as swapped first and last names, still score high.
+
+Notice the design choice in the email row: a missing email scores 0, the same as two completely different emails. Some features (DOB, phone, postcode) keep "missing" as empty instead, and gradient boosting can learn that empty is not the same as disagreeing. That difference matters on real data, where missingness carries information.
+
+#### Step 3. The model: gradient boosting
+
+`HistGradientBoostingClassifier` is a sequence of small decision trees. The first tree makes a rough guess ("same DOB and same phone → likely match"); each next tree concentrates on the pairs the previous ones got wrong ("…unless the first names are completely different"). Three hundred trees later, the sum of their votes is turned into a probability between 0 and 1.
+
+Compared with Fellegi-Sunter:
+
+| | Fellegi-Sunter (Splink) | Gradient boosting |
+|---|---|---|
+| Needs labels | No | Yes |
+| How fields combine | Adds independent bits per field | Learns interactions ("surname agreement matters less when the address also agrees") |
+| Correlated fields | Double counted | Handled |
+| Inputs | Discrete agreement levels | Any number: similarities, embeddings, business signals |
+| Explanation | Waterfall of bits | Feature importance, SHAP values |
+
+#### Step 4. From probability to a decision: the threshold
+
+The model outputs a probability for each pair. A **threshold** turns it into a decision: at or above it the pair becomes an edge (a match), below it not. Edges are then grouped into customers by connected components (section 3.7). The threshold is a business choice, and the cluster metrics show its effect:
+
+| Threshold | Pair precision | Pair recall | Largest cluster |
+|---|---|---|---|
+| 0.5 | 0.968 | 0.976 | 9 |
+| 0.9 (used) | 0.976 | 0.975 | 7 |
+| 0.99 | 0.981 | 0.974 | 7 |
+
+Raising the threshold removes false edges, but even at 0.99 there are still false merges. Those are pairs the model is *sure* about and wrong about (Step 6), which no threshold can fix.
+
+#### Step 5. Evaluate without fooling yourself
+
+Three traps, and what the demo does about each:
+
+- **Accuracy is meaningless here.** With 88% matches, a model that always says "match" is 88% accurate. Report **average precision** (how well the model ranks matches above non-matches) and, above all, cluster metrics.
+- **Leakage between train and test.** One person appears in many pairs. If you split pairs at random, 74% of test pairs share a record with a training pair, so the model is partly tested on people it has already seen. The fix is to split **by person**: `03` scores each pair with a model trained on the other half of the people (by the left record), and `08` uses a strict split where a person is entirely in train or entirely in test. On this synthetic data both splits give an average precision of about 0.9999, because the task is easy; on real data the random split is the one that flatters you.
+- **Pair metrics hide cluster errors.** Out-of-fold average precision is 0.9998, almost perfect. Yet after grouping, 142 pairs of records are wrongly in the same customer. That is why every method in this demo is compared on B-cubed and false-merge pairs, not on pair scores.
+
+#### Step 6. Confidence: is p = 0.9 really 90%?
+
+A probability is only useful for thresholds and review queues if it is **calibrated**: among all pairs scored around 0.9, about 90% should be matches. `08_mlops_feature_store.py` checks this on the held-out people by grouping pairs into ten probability bins and comparing the average prediction with the share that really matched:
+
+| Predicted probability bin | Pairs | Average prediction | Share that really matched |
+|---|---|---|---|
+| 0.0 to 0.1 | 94 | 0.002 | 0.085 |
+| 0.1 to 0.9 | 7 | (mixed) | (too few to judge) |
+| 0.9 to 1.0 | 1,948 | 1.000 | 0.997 |
+
+- **ECE (expected calibration error)** is the weighted average gap between those two columns: 0.004 for gradient boosting, 0.012 for logistic regression. Below about 0.05 is good.
+- **Brier score** is the mean of (prediction − label)²: 0.003.
+- The model is extremely confident: almost every pair is below 0.1 or above 0.9. The 8 true matches hiding in the bottom bin are missed matches, and the 6 non-matches at the top are the confident mistakes from Step 4.
+
+#### Step 7. Where it fails, and where labels come from
+
+The confident mistakes are worth showing in an interview, because they are the cases no model trained on these fields can solve:
+
+| Pair | Why the model says match (p = 1.0) | Truth |
+|---|---|---|
+| Robert Williams, 1996-12-13 / Ronald Williams, 1996-12-13 | Same surname and DOB, similar first name | Two people |
+| Craig Jones, craig.jones@gmail.com / Craig Jones, craig.jones@gmail.com | Same name and email | Two people (a generated email collision) |
+
+These need either more signals (a verified email, a loyalty id) or a human: they belong in the review queue. In production the labels come from that review queue:
+
+- **Stewards** label grey-zone pairs while working the queue; every decision is stored as a labelled pair.
+- A **golden set** of a few thousand pairs, sampled across score bands (not only the easy ones), is labelled once and kept for evaluation.
+- **Active learning** (Zingg, dedupe) asks a human to label the pairs the model is least sure about, so 50 labels do the work of 5,000 random ones.
+
+### 3.7 Clustering and the graph view, step by step
+
+Every matcher in sections 3.4 to 3.6 answers a question about **two** records. A customer can have five records across three systems. Turning pair decisions into customers is a graph problem, and it is where most real false merges come from. `04_graph_resolution.py` implements this section.
+
+#### Step 1. Records are nodes, matches are edges
+
+Draw every record as a dot (a **node**). For every pair the model accepts, draw a line between the two dots (an **edge**). Give each edge a **weight**: how strong the evidence is. In this demo the weight is the Splink match weight in bits from section 3.5 (for the ML model, the log-odds of its probability in bits).
+
+Why bits and not the probability? Probabilities saturate. An edge with 15 bits of evidence has p = 0.99997 and an edge with 60 bits has p = 0.999…9; both print as 1.0, but the second is enormously stronger. Bits keep that difference visible.
+
+#### Step 2. A customer is a connected component
+
+A **connected component** is a group of nodes that can all reach each other by following edges. If A matches B and B matches C, then A, B and C are one component, and so one customer, even if A and C were never compared. This step is called **transitive closure**; `union_find_clusters()` and Splink's clustering both do it.
+
+On this data the Splink edges at p ≥ 0.95 form components of these sizes:
+
+| Records in component | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|
+| Number of components | 1,452 | 1,463 | 971 | 193 | 12 | 8 | 3 |
+
+Nobody in the generator has more than 6 records, so a component of 7 is certainly wrong.
+
+#### Step 3. Chaining: why one bad edge is enough
+
+Matching is **not transitive** in reality: A looks like B and B looks like C does not prove A is C. Transitive closure assumes it is. So one false edge between two genuine customers merges *all* their records. This is **chaining**, and it is why pair metrics can look perfect while customers are wrong.
+
+A real component from the demo, all edges accepted by Splink:
+
+```text
+  Thomas Jones  CRM-000035   2008-07-14  FY15 6JF  thejoness@yahoo.co.uk
+  Thomas Jons   BILLING-000036  (no DOB) FY15 6JF  thejoness@yahoo.co.uk
+  Stanley Jones WEB-005154   2002-07-12  FY15 6JF  thejoness@yahoo.co.uk
+  Stanley Jones WEB-005155   2002-07-12  FY15 6JF  thejoness@yahoo.co.uk
+  Stanley Jones BILLING-005156 (no DOB)  WD2P 8EJ  thejoness@yahoo.co.uk
+
+  edges (bits):  WEB-005154 -- WEB-005155      59.5   (identical records)
+                 CRM-000035 -- BILLING-000036  34.1
+                 BILLING-000036 -- WEB-005154/5 25.3 each
+                 CRM-000035 -- WEB-005154/5    15.3 each
+                 BILLING-005156 -- WEB-005154/5 6.6 each
+```
+
+Thomas and Stanley are two people in one household with a family mailbox. Every edge is individually plausible, and together they make one 5-record "customer".
+
+#### Step 4. Cannot-link constraints: business knowledge the model lacks
+
+A **cannot-link constraint** is a rule that says two records are definitely *different* people, whatever the score. `cannot_link()` uses two:
+
+| Rule | Fires when | Does not fire when |
+|---|---|---|
+| `dob_conflict()` | both DOBs are known and different | one DOB is missing, or the two are a day/month swap (03/04 vs 04/03) |
+| `name_conflict()` | canonical first names clearly differ (Jaro-Winkler < 0.75 and different Metaphone) | the DOB matches (a typo'd nickname), or the names look swapped between first and last |
+
+In the component above, Thomas (2008-07-14) and Stanley (2002-07-12) break the DOB rule, and *thomas* vs *stanley* breaks the name rule. The component holds six conflicting pairs, so it must be split. Of 2,712 multi-record Splink components, 42 contain a conflict.
+
+#### Step 5. Minimum cut: remove the weakest edges that separate them
+
+Given two records that must end up apart, which edges do you delete? The **minimum cut** answers it: the set of edges whose removal disconnects the two records with the smallest total weight. Think of the edges as pipes and the weight as their width: the min cut is the cheapest set of pipes to block so nothing flows from one record to the other. `nx.minimum_cut` computes it with the edge weights as **capacities**.
+
+`repair()` runs it on one conflicting pair, removes the cut edges, and checks each piece again until no piece contains a conflict. For the Jones component:
+
+1. Cut 1 separates BILLING-005156 from the rest by removing its two 6.6-bit edges (total 13.2 bits, the cheapest way out).
+2. Cut 2 separates the two Stanley web records from the two Thomas records by removing the four 15.3- and 25.3-bit edges between them.
+3. The identical Stanley records (59.5 bits) are never cut.
+
+Result: {Thomas CRM, Thomas BILLING}, {Stanley WEB, Stanley WEB} and {Stanley BILLING} alone. The household is no longer one customer. The last record is an over-split: it really is Stanley, but its only evidence was the family email and surname, so the safe choice is to leave it as its own customer for the review queue. Splitting too much is recoverable; merging two people is not.
+
+Across the whole data set, 80 edges are cut in 42 components:
+
+| Splink clusters | Pair precision | Pair recall | B-cubed F1 | False-merge pairs |
+|---|---|---|---|---|
+| Connected components | 0.966 | 0.965 | 0.985 | 198 |
+| + cannot-link and min cut | 0.998 | 0.962 | 0.989 | 12 |
+
+#### Step 6. The identifier graph: who shares an email?
+
+A second graph uses **identifiers** as nodes too: every email and every phone becomes a node connected to the records that carry it. After resolution, an identifier connected to records of **more than one customer** is suspicious. `shared_identifiers()` lists them: 48 emails and 25 phones.
+
+- 31 of the 48 emails really are shared by different people: family mailboxes such as `thejoness@yahoo.co.uk`. These should be excluded from blocking and given less weight in matching (the "generic identifier" list).
+- The other emails and all 25 phones belong to one person whose records ended up as two customers: they are **missed matches**, and the list is a ready-made work queue for stewards.
+
+#### Step 7. Hierarchies are graphs too
+
+The same idea builds households in `06_customer_spine.py`: customers and addresses are nodes, "this customer has lived at this address" is an edge, and each connected component is a household. A graph is the natural model for any "belongs to" structure: person → household, person → company, company → group.
+
+#### Step 8. Other graph techniques worth naming
+
+| Technique | What it does | When to use it |
+|---|---|---|
+| Edge betweenness, bridges | Finds edges that many shortest paths cross: likely bridges between two real clusters | Spotting chaining without constraints |
+| Community detection (Louvain, Leiden) | Splits a graph into densely connected groups | Very large components, no clear constraints |
+| Correlation clustering | Chooses clusters that disagree least with all positive and negative pair scores | When you trust the negative scores as well |
+| Cluster density | Share of possible edges inside a cluster that exist | A cheap alarm: a 6-record cluster with 5 edges is a chain, not a clique |
+| GraphFrames / Spark | Connected components on hundreds of millions of edges | Production scale; repair only the few components that hold a conflict |
+| Neo4j, TigerGraph | Graph database with online traversal | When the hierarchy is queried live by applications |
 
 ### 3.8 MDM, golden record and customer spine
 
@@ -387,12 +568,12 @@ All three matchers use blocking to avoid testing every possible pair. Their scor
 
 **Inputs:** `data/customers.csv`, `results/pairs_splink.csv`, `results/pairs_ml_features.csv`. **Outputs:** `results/metrics_graph.csv`, `results/clusters_graph.csv` (repaired Splink clusters, used by the MDM), `results/shared_identifiers.csv`.
 
-1. `build_graph()` makes a networkx graph: records are nodes, accepted pairs are edges weighted by probability.
+1. `build_graph()` makes a networkx graph: records are nodes, accepted pairs are edges weighted by the evidence in bits (Splink's match weight).
 2. `cannot_link()` combines two rules. `dob_conflict()`: both DOBs known and different, allowing a day/month swap. `name_conflict()`: canonical first names clearly different (Jaro-Winkler < 0.75, different metaphone), with no matching DOB and no sign of swapped first/last names.
-3. `repair()` checks every component. When it finds a conflicting pair it runs `nx.minimum_cut` between them with probabilities as capacities, removes the cut edges, and re-checks both sides until no conflict remains.
+3. `repair()` checks every component. When it finds a conflicting pair it runs `nx.minimum_cut` between them with the evidence in bits as capacities (`evidence_bits()` converts an ML probability to log-odds), removes the cut edges, and re-checks both sides until no conflict remains. Section 3.7 walks through a real example.
 4. `shared_identifiers()` builds the identifier view: every email or phone that points at more than one resolved person.
 
-**What to explain:** for Splink, 46 components are split by cutting 85 edges; false-merge pairs drop from 198 to 12 and recall falls only from 0.965 to 0.961. For ML, false merges drop from 142 to 9 and B-cubed F1 rises to 0.992, the best in the demo. The constraints are business rules, so they are easy to explain and to audit. The shared-identifier list is a steward work queue and a candidate list of values to exclude from blocking.
+**What to explain:** for Splink, 42 components are split by cutting 80 edges; false-merge pairs drop from 198 to 12 and recall falls only from 0.965 to 0.962. For ML, false merges drop from 142 to 9 and B-cubed F1 rises to 0.992, the best in the demo. The constraints are business rules, so they are easy to explain and to audit. The shared-identifier list is a steward work queue and a candidate list of values to exclude from blocking.
 
 ### 5. Master-data workflow: [05_mdm.py](05_mdm.py)
 
@@ -577,6 +758,11 @@ The interviewers will ask for experience, not only the demo. Prepare one short s
 | EM | Expectation-maximisation: estimates `m` without labels |
 | B-cubed | Per-record cluster precision and recall |
 | Chaining | One bad edge merging two clusters through transitive closure |
+| Feature | One number describing how two records compare on one aspect |
+| Label | The known answer for a training pair: match (1) or non-match (0) |
+| Calibration | Whether predicted probabilities match observed match rates |
+| Connected component | A group of nodes that can all reach each other through edges |
+| Transitive closure | Treating A=B and B=C as A=C, i.e. taking connected components |
 | Cannot-link | A rule that two records are different entities |
 | Minimum cut | Cheapest set of edges whose removal separates two nodes |
 | Golden record | The best surviving values for one entity |

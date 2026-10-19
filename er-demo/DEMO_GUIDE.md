@@ -113,32 +113,127 @@ Each field gets a similarity: exact, Levenshtein (edit distance), Jaro-Winkler (
 | Supervised classifier | Model on pair features | Yes | Most flexible, learns interactions | Needs labels and MLOps |
 | Active learning (Zingg, dedupe) | Classifier trained on the pairs it is least sure about | A few dozen | Few labels | Labelling session, licensing |
 
-### 3.5 Fellegi-Sunter, worked example
+### 3.5 Fellegi-Sunter, step by step
 
-For each field and agreement level the model has two probabilities:
+Fellegi-Sunter is the model inside Splink. It answers one question for a pair of records: *how much more likely is what I see if these two records are the same person than if they are two different people?* It builds the answer from four ideas: fields, comparison levels, `m` and `u`.
 
-- `m = P(level | records match)`, e.g. surnames agree exactly for 95% of true matches (typos make up the rest).
-- `u = P(level | records do not match)`, e.g. surnames agree for 1% of random pairs (common names).
+#### Step 1. Fields
 
-The **match weight** of an observed level is `log2(m / u)`. Agreement on a rare value is strong evidence, agreement on a common one is weak; disagreement gives a negative weight. Weights add up because the model assumes the fields are independent given match status. A **prior** weight comes from `λ`, the probability that two random records match.
+A **field** is one column you compare between the two records. The demo compares seven: canonical first name, surname, date of birth, email, phone, postcode and address (the `comparisons` list in `02_splink.py`). Each field is compared separately, and the results are added up at the end.
 
-Illustrative numbers (not the trained model's):
+#### Step 2. Comparison levels (how well the field agrees)
 
-| Evidence | m | u | Weight log2(m/u) |
-|---|---|---|---|
-| Prior: λ ≈ 5,800 true pairs / 33.5M pairs ≈ 0.00017 | | | log2(λ / (1 − λ)) ≈ −12.5 |
-| First name agrees | 0.90 | 0.02 | +5.5 |
-| Surname agrees | 0.95 | 0.01 | +6.6 |
-| DOB agrees | 0.92 | 0.0003 | +11.6 |
-| Email missing | | | 0 (null levels add nothing) |
-| Postcode disagrees | 0.25 | 0.99 | −2.0 |
-| **Total** | | | **+9.2** |
+For each field you do not just ask "same or different?". You define a short ladder of **comparison levels**, also called **agreement levels**, from strongest agreement to disagreement. For the surname in this demo:
 
-Probability = `2^w / (1 + 2^w)` = 2^9.2 / (1 + 2^9.2) ≈ 0.998. The waterfall chart in `results/splink_waterfall_example.html` draws exactly this sum for one real pair.
+| Level | What it means | Example pair |
+|---|---|---|
+| Missing | one of the two values is empty | `smith` vs (blank) |
+| Exact match | identical after standardisation | `smith` vs `smith` |
+| Jaro-Winkler ≥ 0.92 | one small typo | `griffiths` vs `griffihs` (0.98) |
+| Jaro-Winkler ≥ 0.88 | a bit further apart | `smith` vs `smyth` (0.89) |
+| Jaro-Winkler ≥ 0.70 | loosely similar | `walker` vs `walsh` (0.79) |
+| All other comparisons | clearly different | `smith` vs `jones` |
 
-- **`u` estimation:** sample random pairs; almost all are non-matches, so the agreement rates in them are `u`.
-- **`m` estimation with EM, no labels:** start with guesses, compute each pair's match probability (E step), re-estimate `m` from those probabilities (M step), repeat until stable. Each EM run blocks on one field (e.g. DOB) and so cannot learn that field's `m`; that is why `02_splink.py` runs EM on three different blocks.
-- **Term-frequency adjustment:** agreement on `smith` gets less weight than agreement on `featherstonehaugh`, using the value's own frequency instead of the field average.
+Every pair lands on exactly one level per field: Splink checks the levels top to bottom and takes the first one that is true. So a pair of records becomes a short pattern such as *first name exact, surname JW ≥ 0.88, DOB missing, email exact, phone missing, postcode different, address missing*.
+
+#### Step 3. `m`: how often true matches land on this level
+
+`m` is measured **only among pairs that really are the same person**. For each level it is the share of those pairs that land on it.
+
+From the model trained in this demo (`results/splink_model.json`, seed 42; `u` is estimated from a random sample, so your run can differ slightly), for canonical first name:
+
+| Level | m | Read it as |
+|---|---|---|
+| Exact match | 0.676 | 67.6% of true matches have exactly the same first name |
+| JW ≥ 0.92 | 0.176 | 17.6% differ by a small typo |
+| JW ≥ 0.88 | 0.025 | 2.5% differ a bit more |
+| JW ≥ 0.70 | 0.015 | 1.5% are only loosely similar |
+| All other | 0.108 | 10.8% look completely different (swapped first and last name, a nickname not in the dictionary) |
+
+The `m` values of one field add up to 1, because every true match lands somewhere. `m` describes **data quality**: if your sources were perfect, `m` for "exact match" would be 1.0.
+
+#### Step 4. `u`: how often different people land on this level by coincidence
+
+`u` is the same measurement **among pairs of different people**. For the first name, exact match has `u = 0.0047`: two random, unrelated customers share a first name 0.47% of the time, because names like *James* and *Sarah* are common. "All other" has `u = 0.967`: almost all random pairs have clearly different first names.
+
+`u` describes **how common the values are**. A field where everyone has a different value (phone) has a tiny `u` for exact match; a field with few values (gender, city) has a large one.
+
+A useful analogy is a medical test: `m` is the sensitivity (how often the test is positive when the disease is present) and `u` is the false positive rate (how often it is positive when it is not).
+
+#### Step 5. The match weight of one field: log2(m / u)
+
+The ratio `m / u` says how many times more likely the observed level is for a match than for a non-match. Taking `log2` turns it into **bits of evidence**, which can simply be added:
+
+| First-name level | m | u | m / u | Weight log2(m/u) |
+|---|---|---|---|---|
+| Exact match | 0.676 | 0.0047 | 144 | **+7.2** (strong evidence for a match) |
+| JW ≥ 0.70 | 0.015 | 0.025 | 0.6 | **−0.7** (slight evidence against) |
+| All other | 0.108 | 0.967 | 0.11 | **−3.2** (evidence against) |
+| Missing | | | | **0** (no evidence either way) |
+
+Positive weight means the observation is more typical of matches, negative means more typical of non-matches, and a missing value adds nothing.
+
+#### Step 6. The prior: start from how rare matches are
+
+Before looking at any field, two random records are very unlikely to be the same person. The model's prior is `λ = 0.00022` (about 1 in 4,550 random pairs is a match). As bits: `log2(λ / (1 − λ)) = −12.1`. Every pair starts at −12.1 and the fields have to earn their way up.
+
+#### Step 7. Add everything up and convert to a probability
+
+Total match weight = prior + the weight of each field's level. Convert back with `probability = 2^w / (1 + 2^w)`.
+
+**Example A: the same person in two systems.** CRM has *Robert Smith, 1981-03-14, robert.smith@gmail.com, 07700 900123, SW1A 1AA*. WEB has *Bob Smyth, robert.smith+shop@gmail.com, NW3 2QG* (no DOB, no phone, no address, and he has moved).
+
+| Field | Values after standardisation | Level | m | u | Weight |
+|---|---|---|---|---|---|
+| Prior | | | | | −12.1 |
+| First name | robert / robert (Bob → robert) | Exact | 0.676 | 0.0047 | +7.2 |
+| Surname | smith / smyth | JW ≥ 0.88 | 0.036 | 0.00088 | +5.3 |
+| DOB | 1981-03-14 / missing | Missing | | | 0 |
+| Email | robert.smith@gmail.com both (plus-tag removed) | Exact | 0.785 | 0.00016 | +12.3 |
+| Phone | 07700900123 / missing | Missing | | | 0 |
+| Postcode | SW1A 1AA / NW3 2QG | All other | 0.278 | 0.965 | −1.8 |
+| Address | / missing | Missing | | | 0 |
+| **Total** | | | | | **+10.9** |
+
+Probability = 2^10.9 / (1 + 2^10.9) ≈ **0.9995**. The model links them, even with a surname typo and a different postcode, because the email is almost unique to one person.
+
+**Example B: two people in one household.** *Thomas Jones, 2008-07-14* and *Stanley Jones, 2002-07-12*, both with the family email `thejoness@yahoo.co.uk`, the same address and postcode, and different phones.
+
+| Field | Level | Weight |
+|---|---|---|
+| Prior | | −12.1 |
+| First name: thomas / stanley | All other | −3.2 |
+| Surname: jones / jones | Exact | +7.4 |
+| DOB: 6 years apart | ≤ 10 years | −3.7 |
+| Email: same family mailbox | Exact | +12.3 |
+| Phone: different | All other | −4.3 |
+| Postcode: same | Exact | +12.3 |
+| Address: same | Exact | +12.3 |
+| **Total** | | **+21.0**, probability ≈ 1.0 |
+
+The model is not wrong about the evidence: a shared email, address and surname really are typical of one person. What it cannot know is that a household shares them too. That is exactly the false merge that the graph step (section 3.7, `04_graph_resolution.py`) catches with a cannot-link rule on DOB.
+
+(The weights above use the trained `m` and `u` before term-frequency adjustment, so the waterfall chart for a real pair can differ slightly.)
+
+#### Step 8. How the model learns `m` and `u` without labels
+
+- **`u` from random pairs.** Pick two records at random and they are almost never the same person (1 in 4,550). So if you sample a few million random pairs and count how often each level occurs, those counts *are* `u`. `estimate_u_using_random_sampling()` does this.
+- **`m` with expectation-maximisation (EM).** We do not know which pairs are matches, so EM guesses and refines: (1) start with rough `m` values, (2) score every candidate pair with the current `m` and `u`, giving each a match probability, (3) recompute `m` as the level shares among pairs, weighting each pair by its match probability, (4) repeat until the values stop changing.
+- **Why EM runs three times.** Each EM run only looks at pairs from one blocking rule, for example "same DOB". Inside that block every pair agrees on DOB, so the run cannot learn DOB's `m`. `02_splink.py` runs EM on DOB, on postcode and on name blocks, so each field is learned in at least one run.
+- **Term-frequency adjustment.** For names and email, Splink replaces the field-average `u` with the frequency of the actual value. Agreeing on `smith` (common, high `u`) earns fewer bits than agreeing on `featherstonehaugh` (rare, tiny `u`).
+
+#### Where to see it in the demo
+
+- `results/splink_m_u_parameters.html`: the `m` and `u` of every level, side by side.
+- `results/splink_match_weights.html`: the weight `log2(m/u)` of every level, the same numbers as the tables above.
+- `results/splink_waterfall_example.html`: Step 7 for one real pair, bar by bar.
+- To print the table yourself:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import json, math; m = json.load(open('results/splink_model.json')); [print(c['output_column_name'], l['label_for_charts'], round(l['m_probability'], 4), round(l['u_probability'], 6), round(math.log2(l['m_probability'] / l['u_probability']), 1)) for c in m['comparisons'] for l in c['comparison_levels'] if l.get('m_probability') and l.get('u_probability')]"
+```
+
+The assumption to mention in an interview: weights are only allowed to add up because the model treats fields as **independent** given match status. Correlated fields (postcode and address, email and name) are therefore double counted, which is one reason supervised models or careful comparison design can do better.
 
 ### 3.6 Supervised matching
 
@@ -423,7 +518,7 @@ A likely question in the client interview: "How would you build our identity-res
 
 - **Why not match every pair?** There are 33.5 million possible pairs here; blocking keeps 96.5% of true pairs while evaluating 6,405. At 30 million records all-pairs is impossible.
 - **Deterministic or probabilistic?** Both, in tiers. Deterministic for certain links and for explainability; probabilistic or ML where data is noisy and rules miss or over-match.
-- **Explain Fellegi-Sunter in one minute.** Section 3.5: `m` and `u` per field level, weight `log2(m/u)`, weights add up, prior from λ, EM gives `m` without labels.
+- **Explain Fellegi-Sunter in one minute.** "For each field I define agreement levels: exact, small typo, different, missing. `m` is how often true matches land on a level, `u` how often different people land on it by chance. The weight is log2(m/u), in bits. I start from the prior, about −12 bits because matches are rare, add each field's bits and convert to a probability. `u` comes from random pairs and `m` from EM, so no labels are needed." Section 3.5 has the worked examples.
 - **What does term-frequency adjustment do?** Agreement on a rare surname counts more than on `Smith`, using the value's frequency.
 - **Jaro-Winkler or Levenshtein?** Jaro-Winkler for short strings like names (rewards common prefixes); Levenshtein or edit distance for codes and longer strings; token-based ratios when word order varies.
 
@@ -474,7 +569,10 @@ The interviewers will ask for experience, not only the demo. Prepare one short s
 |---|---|
 | Blocking | Restricting comparisons to records that share a cheap key |
 | Pair completeness | Share of true pairs that survive blocking |
-| m / u probability | P(agreement level given match) / given non-match |
+| Field | One column compared between two records (surname, DOB, email...) |
+| Comparison (agreement) level | One rung of a field's similarity ladder: exact, small typo, different, missing |
+| m probability | Share of true matches that land on a level (data quality) |
+| u probability | Share of different-person pairs that land on a level by chance (how common the value is) |
 | Match weight | log2(m/u), summed over fields plus the prior |
 | EM | Expectation-maximisation: estimates `m` without labels |
 | B-cubed | Per-record cluster precision and recall |

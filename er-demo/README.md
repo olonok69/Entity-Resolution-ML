@@ -104,8 +104,10 @@ How to read the results:
 **Rules + fuzzy (rapidfuzz / fuzzywuzzy, jellyfish, Levenshtein, Jaro-Winkler).** You choose blocking keys, similarity functions, weights and thresholds by hand. It is fast and explainable, but every new source means re-tuning, and the weights are guesses.
 
 **Splink (MoJ, MIT licence).** It uses the Fellegi-Sunter model:
-- For each field and agreement level, it learns `m = P(agree | match)` and `u = P(agree | non-match)`.
-- The match weight is `log2(m/u)`, summed over the fields.
+- A **field** is one column compared between two records (surname, DOB, email...). Each field has a ladder of **comparison levels**: exact match, small typo, further apart, clearly different, missing. Every pair lands on one level per field.
+- For each level it learns two numbers. `m` is the share of **true matches** that land on that level (67.6% of true matches have the same first name). `u` is the share of **different people** that land on it by coincidence (0.47% of random pairs share a first name).
+- The level's **match weight** is `log2(m/u)` in bits: +7.2 for an exact first name, −3.2 for a clearly different one, 0 when the value is missing. The pair's total is the prior (−12.1 bits, because only 1 in 4,550 random pairs is a match) plus the weight of every field, converted to a probability with `2^w / (1 + 2^w)`.
+- Worked examples with the demo's own trained numbers are in [DEMO_GUIDE.md section 3.5](DEMO_GUIDE.md#35-fellegi-sunter-step-by-step).
 - `u` comes from random pairs and `m` from EM, so no labels are needed. Labels, when available, can estimate `m` or evaluate the model.
 - Backends are DuckDB (laptop), Spark (Databricks), Athena and Postgres, so the same settings work everywhere.
 - Explainability comes from waterfall charts.

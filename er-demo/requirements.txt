@@ -1,0 +1,9 @@
+pandas>=2.2
+faker>=30
+rapidfuzz>=3.9
+jellyfish>=1.0
+recordlinkage>=0.16
+scikit-learn>=1.5
+splink>=5.0
+duckdb>=1.1
+tabulate

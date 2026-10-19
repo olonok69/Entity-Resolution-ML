@@ -1,0 +1,21 @@
+# Python environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Generated synthetic inputs and demo outputs
+er-demo/data/customers.csv
+er-demo/data/new_batch.csv
+er-demo/results/
+
+# Local reports and private interview preparation
+comparison.md
+entity-resolution-role-prep.md
+
+# Local/editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

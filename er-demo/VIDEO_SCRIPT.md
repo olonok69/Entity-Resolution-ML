@@ -2,7 +2,7 @@
 
 A recording plan for the YouTube video built on this repository. Target length about 18 minutes. Each chapter lists what is on screen and what to say; the narration is a guide, not a teleprompter. Numbers come from a clean run with seed 42; re-run `run_all.sh` before recording and check them against `results/comparison.md`.
 
-The slide deck `customer-identity-resolution.pptx` follows the same chapters, so slides can be cut in between the screen recordings.
+The slide deck [`slides/customer-identity-resolution.pptx`](slides/customer-identity-resolution.pptx) follows the same chapters, so slides can be cut in between the screen recordings.
 
 ## Before recording
 

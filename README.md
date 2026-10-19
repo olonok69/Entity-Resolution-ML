@@ -6,7 +6,7 @@ A laptop-sized customer identity resolution demo using synthetic UK customer rec
 
 - [Project overview and results](er-demo/README.md)
 - [Demo guide: runbook, study notes and interview questions](er-demo/DEMO_GUIDE.md)
-- [Video script](er-demo/VIDEO_SCRIPT.md)
+- [Video script](er-demo/VIDEO_SCRIPT.md) and [slide deck](er-demo/slides/customer-identity-resolution.pptx)
 
 ## Quick start
 
@@ -40,6 +40,7 @@ er-demo/
   data/         synthetic data generator
   databricks/   unexecuted Databricks/SparkAPI example
   zingg/        unexecuted Zingg active-learning example
+  slides/       presentation deck for the interview and the video
   results/      generated outputs (git-ignored)
   01_*.py ...   matching approaches, graph repair, MDM, spine, drift, MLOps, report
 ```

@@ -1,9 +1,9 @@
 # Customer identity resolution demo: fuzzy matching, Splink, ML, graphs, MDM, customer spine and MLOps
 
-Handover doc for the demo prepared for the customer identity resolution role (Senior Data Scientist / Data Engineer, Oct 2026).
+The end-to-end customer identity-resolution pipeline behind the YouTube video: from fuzzy matching to a governed customer spine.
 Everything runs on a laptop in under a minute, on synthetic data with known truth, so every number below is measured, not claimed.
 
-For the presenter's runbook, the study notes and the interview questions, see [DEMO_GUIDE.md](DEMO_GUIDE.md). For the YouTube recording, see [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md).
+For the step-by-step explanations and the common questions, see [DEMO_GUIDE.md](DEMO_GUIDE.md). For the video chapters, see [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md); the slides are in [slides/](slides/customer-identity-resolution.pptx).
 
 ## 1. What is in here
 
@@ -24,9 +24,9 @@ For the presenter's runbook, the study notes and the interview questions, see [D
 | Zingg | `zingg/zingg_customers.py` | Zingg config with active learning phases (findTrainingData, label, train, match) | **No.** It needs Spark plus the Zingg jar or Docker image. |
 | Databricks | `databricks/splink_on_databricks.py` | The same Splink model on SparkAPI, with Delta tables in Unity Catalog and MLflow logging of model and KPIs | **No.** There is no workspace here. |
 
-## 2. How the demo covers the role
+## 2. What the demo covers
 
-| What the role asks for | Where the demo shows it |
+| Capability | Where the demo shows it |
 |---|---|
 | Graph-based techniques and entity resolution | `04_graph_resolution.py`: record graph, cannot-link constraints, min-cut repair, identifier graph. `06_customer_spine.py`: households as connected components of a customer-address graph. |
 | Record linkage and fuzzy matching | `01_rules_rapidfuzz.py` (rapidfuzz, blocking, thresholds), `02_splink.py` (Fellegi-Sunter), `common/standardise.py` |
@@ -176,16 +176,16 @@ Still not covered: re-clustering customers already in the master after a steward
    - Promote a new model to the `champion` alias only when it passes the gate.
 10. **Asset Bundle** for dev/test/prod, and **Workflows** for scheduling.
 
-## 8. Ten-minute demo script for the call
+## 8. Ten-minute walkthrough
 
 1. **(1 min)** "Three systems, 8k records, 4k real people, 183 households. I generated them so I know the truth and can measure quality, which you never can in production."
-2. **(1 min)** Rules + rapidfuzz: "This is what I built before, at CloserStill and Mars: blocking, weighted fuzzy scoring, thresholds, Union-Find. F1 is 0.93."
+2. **(1 min)** Rules + rapidfuzz: "The classic approach most teams start with: blocking, weighted fuzzy scoring, thresholds, Union-Find. F1 is 0.93."
 3. **(2 min)** Splink: "Same blocking, but the weights are learned with EM and no labels." Open the waterfall chart: "This is how I explain a match to a data steward." Then: "Precision is only 0.966, and over half the false merges are households."
 4. **(1 min)** ML: "With labels from stewards, a classifier gets the best recall. Pairwise AP is 1.0 and clusters still chain, so I evaluate at cluster level, with B-cubed."
 5. **(2 min)** Graph: "A customer is a connected component. Two records with different DOBs cannot be the same person, so I cut the cheapest edges between them. False merges go from 198 to 12. The identifier graph gives the steward the shared-mailbox list."
 6. **(1 min)** MDM and spine: "Clusters become a governed master: survivorship with provenance, crosswalk, history, a household → customer → source hierarchy, and a spine table that is only published when its contracts pass."
 7. **(1 min)** Drift and MLOps: "A naive rebuild changes 56% of ids; carry-forward changes 0.2%. The model has a registry, a promotion gate and PSI monitoring; a broken feed fires four alerts while the match rate looks better."
-8. **(1 min)** Close: "For your framework I'd start with Splink on Spark plus graph constraints, add the steward loop for labels, and only add an ML layer where the grey zone is big."
+8. **(1 min)** Close: "For a real platform I'd start with Splink on Spark plus graph constraints, add the steward loop for labels, and only add an ML layer where the grey zone is big."
 
 ## 9. Honest limits
 

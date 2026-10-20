@@ -1,28 +1,27 @@
-# Customer Identity Resolution Demo Guide
+# Customer Identity Resolution: the guide
 
-This guide has three jobs:
+The companion guide to the YouTube video and the slide deck. It has three jobs:
 
-1. **Runbook** for presenting the laptop demo live (sections 1, 5, 6).
-2. **Study notes** for the interview: the concepts behind each step, the maths you may be asked to explain, and the questions to expect with answers (sections 2, 3, 7, 8, 9).
-3. **Source for the YouTube video.** The recording script with chapters and timings is in [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md); it follows the same order as the code tour here.
+1. **Run it yourself** (sections 1, 5, 6): the commands, what to open, and a short walkthrough.
+2. **Learn the ideas** (sections 2, 3, 7, 8): what each technique is, step by step with the demo's own numbers, how it scales, and answers to the common questions.
+3. **Follow the video.** The recording script with chapters and timings is in [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md); it follows the same order as the code tour here.
 
 The demo uses synthetic data with known entity and household IDs. Results are useful for comparing approaches, not as production performance claims.
 
 ## Contents
 
-1. [Before the call](#1-before-the-call)
-2. [What the role asks for, and where the demo shows it](#2-what-the-role-asks-for-and-where-the-demo-shows-it)
+1. [Run the demo](#1-run-the-demo)
+2. [What the demo covers](#2-what-the-demo-covers)
 3. [Concepts primer](#3-concepts-primer)
 4. [Code tour](#4-code-tour)
 5. [Ten-minute walkthrough](#5-ten-minute-walkthrough)
 6. [Optional: demonstrate un-merge](#6-optional-demonstrate-un-merge)
 7. [System design: the framework at scale](#7-system-design-the-framework-at-scale)
-8. [Questions to expect](#8-questions-to-expect)
-9. [Your own stories](#9-your-own-stories)
-10. [Glossary](#10-glossary)
-11. [Troubleshooting](#11-troubleshooting)
+8. [Frequently asked questions](#8-frequently-asked-questions)
+9. [Glossary](#9-glossary)
+10. [Troubleshooting](#10-troubleshooting)
 
-## 1. Before the call
+## 1. Run the demo
 
 Run these commands from PowerShell in the repository's `er-demo/` directory. They use the virtual environment's interpreter directly, so activation is not required.
 
@@ -41,12 +40,12 @@ python -m venv .venv
 .\.venv\Scripts\python.exe 09_compare.py
 ```
 
-The sequence is the same as `run_all.sh`, written out so it works in PowerShell without Bash. Run it before the call: the full run takes about 45 seconds on a laptop and longer on a cold machine. `05_mdm.py` deletes and recreates `results/mdm.duckdb`, and `08_mlops_feature_store.py` resets the feature store and the model registry, so running the sequence again always gives the same starting state.
+The sequence is the same as `run_all.sh`, written out so it works in PowerShell without Bash. The full run takes about 45 seconds on a laptop and longer on a cold machine. `05_mdm.py` deletes and recreates `results/mdm.duckdb`, and `08_mlops_feature_store.py` resets the feature store and the model registry, so running the sequence again always gives the same starting state.
 
-Check that these files exist before presenting:
+Check that these files exist before you explore or record:
 
 - `results/comparison.md`: every metric table in one place. Keep it open in a tab.
-- `results/splink_match_weights.html` and `results/splink_waterfall_example.html`: open both in a browser before screen sharing.
+- `results/splink_match_weights.html` and `results/splink_waterfall_example.html`: open both in a browser.
 - `results/mdm.duckdb` (golden record, crosswalk, history, spine, hierarchy) and `results/feature_store.duckdb`.
 - `results/shared_identifiers.csv`, `results/identity_drift.csv`, `results/monitoring_report.csv`, `results/model_registry/registry.json`.
 
@@ -54,11 +53,11 @@ Optional: `pip install mlflow` before the run and `08_mlops_feature_store.py` al
 
 The demo is local. Zingg and the Databricks SparkAPI example are not part of the laptop run.
 
-## 2. What the role asks for, and where the demo shows it
+## 2. What the demo covers
 
-Use this table to steer the conversation: when they ask about a requirement, name the file and the number.
+Each capability a customer identity-resolution platform needs, the file that shows it, and the headline number.
 
-| Requirement in the job description | Demo evidence | The number to quote |
+| Capability | Where in the demo | Headline number |
 |---|---|---|
 | Graph-based techniques and entity resolution | `04_graph_resolution.py`, households in `06_customer_spine.py` | False-merge pairs 198 → 12 after min-cut repair |
 | Record linkage and fuzzy matching | `01`, `02`, `common/standardise.py` | Blocking keeps 96.5% of true pairs with 0.02% of comparisons |
@@ -70,11 +69,11 @@ Use this table to steer the conversation: when they ask about a requirement, nam
 | MLOps: deployment, monitoring, lifecycle | `08_mlops_feature_store.py`, `databricks/` MLflow | Gate promotes v2; broken feed fires 4 PSI alerts |
 | Feature stores | `08_mlops_feature_store.py` | Versioned features, serving refuses a different version |
 | Customer master data and MDM | `05_mdm.py` | 197/200 returning customers attached correctly |
-| Collaboration with stakeholders | Review queue, waterfall chart, steward audit, shared-identifier list | "The waterfall is how I explain a match to a steward" |
+| Working with data stewards | Review queue, waterfall chart, steward audit, shared-identifier list | The waterfall chart explains a match bar by bar |
 
 ## 3. Concepts primer
 
-Read this section once end to end before the interview; each part is what you would say if asked "explain X".
+Read this section once end to end; each part explains one idea with the demo's own numbers.
 
 ### 3.1 The problem
 
@@ -233,7 +232,7 @@ The model is not wrong about the evidence: a shared email, address and surname r
 .\.venv\Scripts\python.exe -c "import json, math; m = json.load(open('results/splink_model.json')); [print(c['output_column_name'], l['label_for_charts'], round(l['m_probability'], 4), round(l['u_probability'], 6), round(math.log2(l['m_probability'] / l['u_probability']), 1)) for c in m['comparisons'] for l in c['comparison_levels'] if l.get('m_probability') and l.get('u_probability')]"
 ```
 
-The assumption to mention in an interview: weights are only allowed to add up because the model treats fields as **independent** given match status. Correlated fields (postcode and address, email and name) are therefore double counted, which is one reason supervised models or careful comparison design can do better.
+The assumption to keep in mind: weights are only allowed to add up because the model treats fields as **independent** given match status. Correlated fields (postcode and address, email and name) are therefore double counted, which is one reason supervised models or careful comparison design can do better.
 
 ### 3.6 Supervised matching, step by step
 
@@ -325,7 +324,7 @@ A probability is only useful for thresholds and review queues if it is **calibra
 
 #### Step 7. Where it fails, and where labels come from
 
-The confident mistakes are worth showing in an interview, because they are the cases no model trained on these fields can solve:
+The confident mistakes are worth showing, because they are the cases no model trained on these fields can solve:
 
 | Pair | Why the model says match (p = 1.0) | Truth |
 |---|---|---|
@@ -709,7 +708,7 @@ Explain that the source row is assigned a new customer ID, the old and new golde
 
 ## 7. System design: the framework at scale
 
-A likely question in the client interview: "How would you build our identity-resolution framework?" Answer in this order, about five minutes, drawing boxes if there is a whiteboard.
+How would you build an identity-resolution framework for a real company? In this order:
 
 1. **Clarify:** how many customers and sources, batch or real-time, B2C or B2B, which consumers depend on the id, what a false merge costs, who the stewards are.
 2. **Ingest and standardise (Bronze → Silver):** one table per source, a standardisation library shared by every job, data-quality checks on arrival (nulls, formats, junk values).
@@ -722,7 +721,7 @@ A likely question in the client interview: "How would you build our identity-res
 9. **MLOps:** feature store, registry with champion/challenger, promotion gate, shadow scoring, monitoring of PSI, label-free KPIs, id drift and steward overturn rate; retraining from steward labels.
 10. **Reusability:** the matcher is configuration (blocking rules, comparisons, thresholds, survivorship rules per field) so a new source or a new entity type (supplier, product) is a config change, not a new project.
 
-## 8. Questions to expect
+## 8. Frequently asked questions
 
 ### Fundamentals
 
@@ -764,17 +763,7 @@ A likely question in the client interview: "How would you build our identity-res
 
 The MDM, spine and registry are teaching models: no concurrent write handling, steward UI, access control or real-time path. Synthetic data is cleaner than real customer data. The cannot-link rules trust the DOB. Zingg and Databricks were not executed.
 
-## 9. Your own stories
-
-The interviewers will ask for experience, not only the demo. Prepare one short story (situation, what you did, measurable result) for each prompt; the README mentions CloserStill, Mars and Genus as starting points.
-
-- A matching system you built: data size, sources, approach, quality before and after.
-- A false merge or generic-identifier problem you found and how you fixed it.
-- Deploying and monitoring a model in production: what broke and how you noticed.
-- Working with data stewards or business owners to agree thresholds and survivorship rules.
-- Making a framework reusable across teams or entity types.
-
-## 10. Glossary
+## 9. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -808,7 +797,7 @@ The interviewers will ask for experience, not only the demo. Prepare one short s
 | ECE | Expected calibration error |
 | Champion / challenger | Current production model / candidate replacement |
 
-## 11. Troubleshooting
+## 10. Troubleshooting
 
 - If an output is missing, rerun the steps in order; later stages consume earlier CSVs, the saved Splink model and `mdm.duckdb`.
 - If `06_customer_spine.py` exits with "data contract failed", re-run `05_mdm.py` first: the spine expects a freshly built MDM database.

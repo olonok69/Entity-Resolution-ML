@@ -332,11 +332,21 @@ The confident mistakes are worth showing in an interview, because they are the c
 | Robert Williams, 1996-12-13 / Ronald Williams, 1996-12-13 | Same surname and DOB, similar first name | Two people |
 | Craig Jones, craig.jones@gmail.com / Craig Jones, craig.jones@gmail.com | Same name and email | Two people (a generated email collision) |
 
-These need either more signals (a verified email, a loyalty id) or a human: they belong in the review queue. In production the labels come from that review queue:
+These need either more signals (a verified email, a loyalty id) or a human: they belong in the review queue.
 
-- **Stewards** label grey-zone pairs while working the queue; every decision is stored as a labelled pair.
-- A **golden set** of a few thousand pairs, sampled across score bands (not only the easy ones), is labelled once and kept for evaluation.
-- **Active learning** (Zingg, dedupe) asks a human to label the pairs the model is least sure about, so 50 labels do the work of 5,000 random ones.
+**Where labels come from in production.** What you label is a *pair*, not a record and not a feature: the features are computed automatically from the two records, and the label is a human or a trusted source saying "same person" (1) or "not the same person" (0). Real projects mix three sources:
+
+| Source | What it is | Strength | Weakness |
+|---|---|---|---|
+| **Human review** | Stewards decide pairs from the review queue; every decision is stored as a labelled pair. A **golden set** of a few thousand pairs, sampled across score bands, is labelled once and kept for evaluation. | Most reliable; covers the hard cases | Expensive: hundreds or a few thousand pairs, not millions |
+| **Silver labels** | Links the business already trusts: same national ID, tax number or passport, same loyalty card, one login used in both systems, merges stewards already approved in the MDM | Free and plentiful | Biased towards easy pairs, so add human-reviewed hard pairs on top |
+| **Unsupervised model as teacher** | Pairs Splink scores very high or very low become provisional labels; people check the grey zone | Gets a classifier started on day one | Inherits the teacher's mistakes (households!) |
+
+**Active learning** (Zingg, dedupe) keeps the human part small: the model sends people only the pairs it is least sure about (scores near 0.5), because a pair it already gets right teaches it nothing. 50 well-chosen labels can do the work of 5,000 random ones.
+
+**What about synthetic data?** This demo's `true_entity_id` is synthetic, and that is fine for building and testing the pipeline and for showing the method. It is not a substitute for real labels: the errors in real data (how people actually mistype, how systems truncate names, which fields go missing together) differ from the errors you invented, so a model trained only on synthetic pairs can score well here and still fail on production data.
+
+**A sensible path:** start with Splink, which needs no labels; store every steward decision as a label from day one; use active learning to spend reviewer time on hard pairs; bring in the supervised model once a golden set of a few thousand real pairs shows it beats Splink on *cluster* metrics.
 
 ### 3.7 Clustering and the graph view, step by step
 
@@ -455,6 +465,25 @@ Truth: `T(r)` is the true cluster of record `r`, `C(r)` the predicted one.
 - **Label-free KPIs** (production has no truth): number of entities, largest cluster, cluster size distribution, review-queue size, match rate per source, score distribution, id drift.
 - **Drift statistic:** population stability index, `PSI = Σ (a − e) × ln(a / e)` over bins of a reference (`e`) and current (`a`) distribution. Below 0.1 stable, 0.1–0.2 watch, above 0.2 act.
 - **Golden set:** a few thousand steward-labelled pairs, stratified by score band, refreshed every quarter. It is how you measure precision and recall in production.
+
+#### Precision or recall: which matters more?
+
+For customer identity, **precision** usually matters more. But the real answer is that you choose the threshold from the cost of each kind of error, and that depends on what the matches are used for.
+
+| Error | What it means | Consequence | Can you undo it? |
+|---|---|---|---|
+| Low precision: **false merge** | Two different people become one customer | One person sees another's orders, address or account (a GDPR incident); marketing consent, credit and fraud decisions run on mixed data | Hard: downstream systems have already used the merged customer |
+| Low recall: **missed match** | One person has two customer ids | Duplicate letters, a less complete customer view, slightly worse analytics | Easy: a later run or a steward links them |
+
+That is why the graph step trades 0.3 points of recall (0.965 → 0.962) for precision going from 0.966 to 0.998, and why section 3.7 says splitting too much is recoverable but merging two people is not.
+
+Use cases where **recall** wins:
+
+- **Fraud and AML:** missing that two applications come from the same person is the expensive mistake; an analyst removes the false matches.
+- **Sanctions screening and KYC:** a missed match can be a regulatory breach.
+- **GDPR subject access or erasure:** you must find every record of the person.
+
+In practice you use **two thresholds**, not one: above the high threshold pairs merge automatically (protects precision), between the two they go to the steward review queue (recovers recall), below the low one they stay apart. And measure on **clusters** (B-cubed), plus the number of false-merge pairs and the largest cluster, not only on pairs: one bad pair can merge two whole customers. The ML matcher shows it: average precision 0.9998, yet 142 false-merge pairs.
 
 ### 3.10 Identity drift
 
@@ -701,6 +730,7 @@ A likely question in the client interview: "How would you build our identity-res
 - **Deterministic or probabilistic?** Both, in tiers. Deterministic for certain links and for explainability; probabilistic or ML where data is noisy and rules miss or over-match.
 - **Explain Fellegi-Sunter in one minute.** "For each field I define agreement levels: exact, small typo, different, missing. `m` is how often true matches land on a level, `u` how often different people land on it by chance. The weight is log2(m/u), in bits. I start from the prior, about −12 bits because matches are rare, add each field's bits and convert to a probability. `u` comes from random pairs and `m` from EM, so no labels are needed." Section 3.5 has the worked examples.
 - **What does term-frequency adjustment do?** Agreement on a rare surname counts more than on `Smith`, using the value's frequency.
+- **Are Splink and Zingg commercial? Do you need a licence?** No. Splink (UK Ministry of Justice) is MIT-licensed, free for any use including commercial. Zingg has a free Community edition under AGPL-3.0 and a paid Zingg Enterprise edition with extra features and support; AGPL is fine for internal use, and its obligations apply only if you modify Zingg and distribute it or offer it as a service, which is why some legal teams avoid it. Everything else in the demo (rapidfuzz, recordlinkage, networkx, DuckDB, scikit-learn) is MIT or BSD. The commercial products in this space are Senzing, Informatica, Reltio, Tamr and Quantexa.
 - **Jaro-Winkler or Levenshtein?** Jaro-Winkler for short strings like names (rewards common prefixes); Levenshtein or edit distance for codes and longer strings; token-based ratios when word order varies.
 
 ### Graphs
@@ -711,10 +741,10 @@ A likely question in the client interview: "How would you build our identity-res
 
 ### ML and confidence
 
-- **Where do labels come from?** Steward decisions on the review queue, a stratified golden set, active learning to pick the most informative pairs.
+- **Where do labels come from? Do you need synthetic data?** You label pairs, not features. Sources: steward decisions on the review queue and a stratified golden set; silver labels from identifiers the business already trusts (national ID, loyalty card, shared login); high- and low-scoring Splink pairs as provisional labels; active learning to send people only the most uncertain pairs. Synthetic data is for building and testing the pipeline, not for training the production model. Section 3.6, Step 7.
 - **How do you avoid leakage?** Split by entity, never by pair; `08` shows the strict split.
 - **What does "confidence" mean for a match?** A calibrated probability. Check calibration (Brier, ECE) before using thresholds; recalibrate with isotonic or Platt scaling.
-- **Why favour precision?** A false merge can expose one person's data to another and corrupt consent and credit decisions. Keep uncertain records in the review queue instead of joining them.
+- **Precision or recall?** Usually precision: a false merge can expose one person's data to another and corrupt consent and credit decisions, and it is hard to undo, while a missed match is a duplicate a later run can fix. Recall wins for fraud, AML, sanctions screening and GDPR access requests. Use two thresholds (auto-merge, review queue, keep apart) and measure on clusters. Section 3.9.
 
 ### Spine, MDM and governance
 

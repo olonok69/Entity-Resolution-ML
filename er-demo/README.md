@@ -123,6 +123,11 @@ How to read the results:
 - Watch the AGPL licence if the code is distributed.
 
 **Supervised classifier (recordlinkage + scikit-learn / XGBoost).** You build your own features and model. It is the most flexible, since you can add embeddings, LLM features or any business signal, but it needs labelled pairs and MLOps around it.
+- Labels are pairs marked "same person" or "not", not features. They come from steward decisions on the review queue, a golden set, silver labels from identifiers the business already trusts (national ID, loyalty card, shared login), and active learning. Synthetic data like this demo's is for building and testing, not for training a production model. See [DEMO_GUIDE.md section 3.6, Step 7](DEMO_GUIDE.md#step-7-where-it-fails-and-where-labels-come-from).
+
+**Precision or recall?** For customer identity usually precision: a false merge exposes one person's data to another and is hard to undo, while a missed match is a duplicate that a later run or a steward can link. Recall wins for fraud, AML, sanctions screening and GDPR access requests. Use two thresholds (auto-merge, review queue, keep apart) and measure on clusters. See [DEMO_GUIDE.md section 3.9](DEMO_GUIDE.md#precision-or-recall-which-matters-more).
+
+**Licences.** Nothing in the demo needs a paid licence. Splink is MIT. Zingg Community is AGPL-3.0 (free; obligations only if you modify and distribute it or offer it as a service), and Zingg Enterprise is a paid edition. rapidfuzz, recordlinkage, networkx, DuckDB and scikit-learn are MIT or BSD. Commercial alternatives: Senzing, Informatica, Reltio, Tamr, Quantexa.
 
 **Others worth naming:**
 - `dedupe` (Python, active learning, BSD).

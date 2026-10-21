@@ -1,5 +1,7 @@
 # Customer Identity Resolution: the guide
 
+Versión en español: [DEMO_GUIDE.es.md](DEMO_GUIDE.es.md)
+
 The companion guide to the YouTube video and the slide deck. It has three jobs:
 
 1. **Run it yourself** (sections 1, 5, 6): the commands, what to open, and a short walkthrough.
@@ -236,7 +238,7 @@ The assumption to keep in mind: weights are only allowed to add up because the m
 
 ### 3.6 Supervised matching, step by step
 
-Fellegi-Sunter learns from the data without labels. Supervised matching does the opposite: you show a model pairs whose answer you already know and it learns the rule itself. It is the "ML where deterministic rules are insufficient" in the job description. `03_ml_recordlinkage.py` builds it in five steps.
+Fellegi-Sunter learns from the data without labels. Supervised matching does the opposite: you show a model pairs whose answer you already know and it learns the rule itself. `03_ml_recordlinkage.py` builds it in seven steps.
 
 #### Step 1. The unit of learning is a pair, not a record
 

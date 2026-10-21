@@ -1,5 +1,7 @@
 # Video script: Customer identity resolution, from fuzzy matching to a governed customer spine
 
+Versión en español: [VIDEO_SCRIPT.es.md](VIDEO_SCRIPT.es.md)
+
 A recording plan for the YouTube video built on this repository. Target length about 22 minutes. Each chapter lists what is on screen and what to say; the narration is a guide, not a teleprompter. Numbers come from a clean run with seed 42; re-run `run_all.sh` before recording and check them against `results/comparison.md`.
 
 Record from this script, not from the guide. The slide deck [`slides/customer-identity-resolution.pptx`](slides/customer-identity-resolution.pptx) runs in the same order as the chapters below: each chapter lists its slides, so you can go through the deck from slide 1 to 29 without jumping. Each chapter also names the [DEMO_GUIDE.md](DEMO_GUIDE.md) section to link in the video description for viewers who want the details.
@@ -187,7 +189,7 @@ If I had to build this for a real company, these are the eight steps [slide 26].
 - Fellegi-Sunter weights adding up (chapter 5).
 - Feature row for one pair, and the two-threshold bar (chapters 6 and 7).
 - Chained cluster with a red min-cut edge, then the cut-by-cut Jones component (chapter 8).
-- Bronze, silver and gold layers (chapter 13).
 - Household → customer → source tree (chapter 10).
 - Drift bar chart: 56% / 0.87% / 0.20% (chapter 11).
+- Bronze, silver and gold layers (chapter 13).
 - Results table from `results/comparison.md` (chapter 14).

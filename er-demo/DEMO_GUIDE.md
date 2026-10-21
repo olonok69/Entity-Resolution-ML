@@ -1,10 +1,12 @@
 # Customer Identity Resolution: the guide
 
+Versión en español: [DEMO_GUIDE.es.md](DEMO_GUIDE.es.md)
+
 The companion guide to the YouTube video and the slide deck. It has three jobs:
 
 1. **Run it yourself** (sections 1, 5, 6): the commands, what to open, and a short walkthrough.
 2. **Learn the ideas** (sections 2, 3, 7, 8): what each technique is, step by step with the demo's own numbers, how it scales, and answers to the common questions.
-3. **Follow the video.** The recording script with chapters and timings is in [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md); it follows the same order as the code tour here.
+3. **Follow the video.** The recording script is [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md): it has the chapters, timings and narration, and it walks through the slide deck in order, slide 1 to 29. Use this guide as the reference behind each chapter, not as the script.
 
 The demo uses synthetic data with known entity and household IDs. Results are useful for comparing approaches, not as production performance claims.
 
@@ -236,7 +238,7 @@ The assumption to keep in mind: weights are only allowed to add up because the m
 
 ### 3.6 Supervised matching, step by step
 
-Fellegi-Sunter learns from the data without labels. Supervised matching does the opposite: you show a model pairs whose answer you already know and it learns the rule itself. It is the "ML where deterministic rules are insufficient" in the job description. `03_ml_recordlinkage.py` builds it in five steps.
+Fellegi-Sunter learns from the data without labels. Supervised matching does the opposite: you show a model pairs whose answer you already know and it learns the rule itself. `03_ml_recordlinkage.py` builds it in seven steps.
 
 #### Step 1. The unit of learning is a pair, not a record
 

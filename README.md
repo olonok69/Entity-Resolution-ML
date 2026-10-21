@@ -1,5 +1,7 @@
 # Customer Entity Resolution Demo
 
+Versión en español: [README.es.md](README.es.md)
+
 A laptop-sized customer identity resolution demo using synthetic UK customer records with known ground truth. It compares hand-built fuzzy rules, unsupervised Splink and a supervised pair classifier, repairs clusters with graph techniques, then builds a mini MDM, a governed customer spine, stable ids across runs, and the MLOps around the ML matcher (feature store, model registry, monitoring).
 
 ## Start here

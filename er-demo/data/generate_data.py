@@ -13,10 +13,12 @@ Output: data/customers.csv  (true_entity_id / true_household_id are ONLY for eva
 """
 
 import random
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 from faker import Faker
+import faker.providers.date_time as faker_date_time
 from faker.providers.date_time import Provider as DateTimeProvider
 
 SEED = 42
@@ -36,8 +38,19 @@ def _rand_seconds(self, start_datetime: int, end_datetime: int) -> float:
 
 
 # Faker draws random dates with randint on Windows and uniform elsewhere, so the same seed
-# gave different people on Windows. Use one rule everywhere so the data matches the docs.
+# gave different people on Windows. Use one rule everywhere.
 DateTimeProvider._rand_seconds = _rand_seconds
+
+
+class _FixedNow(datetime):
+    """Faker dates are relative to today; pin "today" so every run makes the same data."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 10, 19, 12, 0, 0, tzinfo=tz)
+
+
+faker_date_time.datetime = _FixedNow
 
 NICKNAMES = {
     "robert": "bob",

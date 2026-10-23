@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 from faker import Faker
+from faker.providers.date_time import Provider as DateTimeProvider
 
 SEED = 42
 N_ENTITIES = 4000
@@ -26,6 +27,17 @@ HOUSEHOLD_RATE = 0.10  # share of people who get a housemate
 random.seed(SEED)
 fake = Faker("en_GB")
 Faker.seed(SEED)
+
+
+def _rand_seconds(self, start_datetime: int, end_datetime: int) -> float:
+    if start_datetime > end_datetime:
+        raise ValueError("empty range for _rand_seconds")
+    return self.generator.random.uniform(start_datetime, end_datetime)
+
+
+# Faker draws random dates with randint on Windows and uniform elsewhere, so the same seed
+# gave different people on Windows. Use one rule everywhere so the data matches the docs.
+DateTimeProvider._rand_seconds = _rand_seconds
 
 NICKNAMES = {
     "robert": "bob",

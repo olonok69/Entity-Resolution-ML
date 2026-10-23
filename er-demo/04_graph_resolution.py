@@ -72,6 +72,8 @@ def evidence_bits(p: float) -> float:
     Probabilities saturate: 0.99999 and 0.999999999 both look like 1.0, yet the second edge
     has ten more bits of evidence. Cutting on bits keeps strong edges and removes weak ones.
     """
+    # Clamp endpoints so log-odds stay finite; a small positive capacity also keeps
+    # a zero/negative-evidence edge eligible for a minimum cut.
     p = min(max(p, 1e-12), 1 - 1e-12)
     return max(float(np.log2(p / (1 - p))), 0.01)
 
@@ -94,6 +96,8 @@ def repair(g: nx.Graph, df: pd.DataFrame) -> tuple[nx.Graph, dict]:
         comp = queue.pop()
         stats["components_checked"] += 1
         recs = df.loc[sorted(comp)]
+        # Inspect pairs inside this component, not across already separate customers.
+        # Repair one violation at a time because a cut can expose other conflicts.
         conflict = next(
             (
                 (a, b)
@@ -108,6 +112,8 @@ def repair(g: nx.Graph, df: pd.DataFrame) -> tuple[nx.Graph, dict]:
         nx.set_edge_attributes(
             sub, {e: d["weight"] for e, d in sub.edges.items()}, "capacity"
         )
+        # Capacities represent evidence strength: a minimum cut prefers removing weaker
+        # edges while preserving the stronger links that connect each side internally.
         _, (side_a, side_b) = nx.minimum_cut(sub, *conflict)
         cut = [(u, v) for u in side_a for v in sub[u] if v in side_b]
         g.remove_edges_from(cut)
@@ -129,6 +135,8 @@ def shared_identifiers(df: pd.DataFrame, clusters: dict) -> pd.DataFrame:
     for field in ("email", "phone"):
         sub = df[df[field].notna()]
         for value, grp in sub.groupby(field):
+            # Count distinct resolved entities, rather than rows: repeated records
+            # inside one entity do not make an identifier "shared" across customers.
             people = {clusters[i] for i in grp.index}
             if len(people) > 1:
                 rows.append(

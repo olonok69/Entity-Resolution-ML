@@ -30,6 +30,7 @@ spark.sparkContext.setCheckpointDir(f"/Volumes/{CATALOG}/{SCHEMA}/checkpoints") 
 df = spark.table("customer_std")  # noqa: F821
 
 # COMMAND ----------
+# Splink settings mirror the laptop run; only the execution backend and table storage change.
 settings = SettingsCreator(
     link_type="dedupe_only",
     unique_id_column_name="unique_id",
@@ -53,6 +54,7 @@ linker = Linker(db_api.register(df), settings)
 
 # COMMAND ----------
 with mlflow.start_run(run_name="splink_customer_matching") as run:
+    # Training uses comparison patterns only; no synthetic truth labels are supplied here.
     linker.training.estimate_probability_two_random_records_match(
         [block_on("email"), block_on("phone"), block_on("first_name_canon", "last_name", "dob")], recall=0.7)
     linker.training.estimate_u_using_random_sampling(max_pairs=5e7)

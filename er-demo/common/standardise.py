@@ -1,4 +1,8 @@
-"""Standardisation shared by every matcher. Most of the match quality comes from here."""
+"""Shared, deliberately lightweight field normalisation used by every matcher.
+
+These are demo heuristics rather than production validation rules: they make common
+formatting differences comparable while leaving uncertain values for the matcher to score.
+"""
 
 import re
 import unicodedata
@@ -52,6 +56,7 @@ def clean_email(s) -> str | None:
         return None
     local, domain = str(s).strip().lower().split("@", 1)
     local = local.split("+", 1)[0]
+    # Gmail ignores dots in the local part; do not apply that rule to other providers.
     if domain in ("gmail.com", "googlemail.com"):
         local = local.replace(".", "")
     return f"{local}@{domain}"
@@ -81,6 +86,7 @@ def standardise(df: pd.DataFrame) -> pd.DataFrame:
     out["unique_id"] = out["source_record_id"]
     out["first_name"] = out["first_name"].map(clean_name)
     out["last_name"] = out["last_name"].map(clean_name)
+    # Keep the cleaned spelling and a separate canonical form for known nicknames.
     out["first_name_canon"] = out["first_name"].map(
         lambda n: NICKNAMES.get(n, n) if n else None
     )

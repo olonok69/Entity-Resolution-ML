@@ -15,7 +15,10 @@ files = [
     "metrics_ml.csv",
     "metrics_graph.csv",
 ]
+# Only combine matcher metrics that exist, allowing the report to describe a partial
+# pipeline run as long as at least one matcher has produced its metrics file.
 df = pd.concat([pd.read_csv(RES / f) for f in files if (RES / f).exists()])
+# Keep the comparison focused on measures that are consistently available across matchers.
 cols = [
     "method",
     "pair_precision",
@@ -41,10 +44,13 @@ extras = [
 ]
 for title, f, keep in extras:
     if (RES / f).exists():
+        # Later stages add optional sections; omit them when those stages have not run.
         t = pd.read_csv(RES / f)
         sections += [f"\n## {title}\n", (t[keep] if keep else t).to_markdown(index=False)]
 if (RES / "monitoring_report.csv").exists():
     m = pd.read_csv(RES / "monitoring_report.csv")
+    # Show the headline operational KPIs side by side for each batch, then list the
+    # individual feature/score PSI checks that crossed the configured alert threshold.
     head = m[m.kpi.isin(["candidate_pairs", "match_rate", "grey_zone_share", "psi_score"])]
     sections += [
         "\n## Monitoring, label-free KPIs (step 8)\n",

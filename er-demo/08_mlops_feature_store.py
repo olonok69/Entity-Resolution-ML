@@ -96,6 +96,8 @@ class FeatureStore:
 
     def write(self, table: str, X: pd.DataFrame, version: str):
         """Write a pair-feature table (one per use: training, serving batch)."""
+        # Persist the pair IDs with the values so training and later scoring can use
+        # the same named feature set and verify which version produced each row.
         out = X.reset_index(names=["id_l", "id_r"]).assign(
             feature_set_version=version, computed_at=now()
         )
@@ -107,6 +109,7 @@ class FeatureStore:
         """Read features, refusing a feature-set version the model was not trained on."""
         df = self.con.execute(f"SELECT * FROM {table}").df()
         found = set(df.feature_set_version)
+        # A version mismatch is training/serving skew, so fail instead of scoring silently.
         if found != {version}:
             raise ValueError(f"{table} has feature set {found}, model expects {version}")
         return df.set_index(["id_l", "id_r"]).drop(
@@ -117,6 +120,8 @@ class FeatureStore:
 # ---------- evaluation ----------
 def ece(y, p, bins=10) -> float:
     """Expected calibration error: average |observed match rate - predicted p| per bin."""
+    # Bin predicted probabilities and weight each calibration gap by the fraction
+    # of examples in that bin; lower ECE means probabilities better reflect outcomes.
     edges = np.linspace(0, 1, bins + 1)
     idx = np.clip(np.digitize(p, edges) - 1, 0, bins - 1)
     total = 0.0
@@ -135,9 +140,11 @@ def psi(expected, actual, bins=10) -> float:
     def dist(x):
         nan = np.isnan(x)
         counts = np.histogram(x[~nan], bins=qs)[0] if len(qs) > 1 else np.array([(~nan).sum()])
+        # Keep missing values as their own bucket so changes in null rates can trigger PSI.
         d = np.append(counts, nan.sum()) / len(x)
         return np.clip(d, 1e-4, None)
 
+    # Reuse reference quantiles for both distributions so each bucket is comparable.
     e, a = dist(expected), dist(actual)
     return round(float(np.sum((a - e) * np.log(a / e))), 4)
 
@@ -189,6 +196,8 @@ def register(reg: dict, name: str, model, metrics: dict, fs_version: str) -> dic
 
 def promotion_gate(challenger: dict, champion: dict | None) -> tuple[bool, str]:
     """Promote only if cluster quality is at least as good and calibration is acceptable."""
+    # Reject poor calibration first; after a champion exists, also protect cluster
+    # quality and guard against a substantial increase in chaining.
     c = challenger["metrics"]
     if c["ece"] > 0.05:
         return False, f"calibration too poor (ECE {c['ece']})"
@@ -224,6 +233,8 @@ def batch_pairs(existing: pd.DataFrame, new: pd.DataFrame) -> pd.MultiIndex:
     """Candidate pairs between existing and new records, with the same blocking keys."""
     both = pd.concat([existing, new])
     new_ids = set(new.unique_id)
+    # Retain only cross-snapshot comparisons (one old, one new) and put old IDs on
+    # the left, matching the feature/model convention used by the rest of the demo.
     pairs = {
         (a, b) if a not in new_ids else (b, a)
         for a, b in rules.candidate_pairs(both)
@@ -279,10 +290,13 @@ def main():
     in_test = truth.isin(test_ents)
     l_test = in_test.loc[X.index.get_level_values(0)].values
     r_test = in_test.loc[X.index.get_level_values(1)].values
+    # Exclude cross-boundary pairs: training has no test people, and test pairs are all test people.
     tr, te = ~l_test & ~r_test, l_test & r_test
     test_records = list(truth.index[in_test])
     print(f"entity-disjoint split: {tr.sum()} train pairs, {te.sum()} test pairs")
 
+    # Compare a linear baseline with a nonlinear model under the same split, features,
+    # and promotion rules; this isolates the model choice for the demonstration.
     candidates = {
         "logistic_regression": make_pipeline(
             SimpleImputer(strategy="constant", fill_value=0), StandardScaler(), LogisticRegression(max_iter=1000)
@@ -306,7 +320,8 @@ def main():
     model = pickle.loads((REGISTRY / champion["artifact"]).read_bytes())
     p_ref = model.predict_proba(X[tr])[:, 1]
 
-    # monitoring: the real new batch, and the same batch from a feed that broke overnight
+    # Compare a normal incoming batch with a controlled failure scenario. The latter
+    # simulates missing phones and names reduced to initials to demonstrate drift alerts.
     batch = pd.read_csv(HERE / "data/new_batch.csv")
     broken = batch.assign(
         phone=None,  # a source stopped sending phone numbers

@@ -41,7 +41,8 @@ fields = [
     FieldDefinition("city", "string", MatchType.FUZZY),
     FieldDefinition("postcode", "string", MatchType.PINCODE),
     FieldDefinition("updated_at", "string", MatchType.DONT_USE),
-    FieldDefinition("true_entity_id", "string", MatchType.DONT_USE),  # evaluation only
+    # The synthetic answer key is carried through for evaluation, never for matching.
+    FieldDefinition("true_entity_id", "string", MatchType.DONT_USE),
 ]
 
 args = Arguments()

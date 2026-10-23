@@ -36,9 +36,13 @@ MODEL_COLUMNS = [
     "surname_metaphone",
     "first_metaphone",
     "updated_at",
+    # Retained for evaluation only; it is not used by the blocking rules or comparisons.
     "true_entity_id",
 ]
 
+# Blocking determines which pairs Splink scores; comparisons describe the evidence
+# it measures for those pairs. Dedupe-only is appropriate because all source systems
+# have already been combined into one standardized table.
 settings = SettingsCreator(
     link_type="dedupe_only",  # all sources in one table; use "link_and_dedupe" with a list of tables
     unique_id_column_name="unique_id",
@@ -73,7 +77,8 @@ def build_linker(df: pd.DataFrame):
 
 def train(linker: Linker):
     """Estimate the prior and u/m agreement parameters without labelled pairs."""
-    # 1. prior: how likely are two random records to match (deterministic rules, assumed recall)
+    # The prior estimates how rare a random match is, using these rules and an assumed
+    # recall. It is distinct from the later per-pair evidence weights.
     linker.training.estimate_probability_two_random_records_match(
         [
             block_on("email"),
@@ -82,9 +87,11 @@ def train(linker: Linker):
         ],
         recall=0.7,
     )
-    # 2. u probabilities: how often fields agree by chance (random pairs)
+    # u: how often different people agree at each comparison level, estimated from
+    # random pairs where a true match is very unlikely.
     linker.training.estimate_u_using_random_sampling(max_pairs=2e6)
-    # 3. m probabilities: EM on a couple of blocks, each one frees the fields not used to block
+    # m: how often true matches agree at each level. EM uses likely matches in each
+    # block; the blocking field itself cannot be learned in that run because it is fixed.
     linker.training.estimate_parameters_using_expectation_maximisation(block_on("dob"))
     linker.training.estimate_parameters_using_expectation_maximisation(
         block_on("postcode")
@@ -102,7 +109,10 @@ def main():
     linker, _ = build_linker(df)
     train(linker)
 
+    # Keep predictions from p=0.2 onward so the review band and threshold sweep can
+    # reuse one scored set instead of rerunning the model for every threshold.
     preds = linker.inference.predict(threshold_match_probability=0.2)
+    # The selected threshold applies to pair probabilities before transitive clustering.
     clusters = linker.clustering.cluster_pairwise_predictions_at_threshold(
         preds, CLUSTER_THRESHOLD
     )
@@ -110,7 +120,8 @@ def main():
     metrics = evaluate_clusters(cdf.unique_id, cdf.cluster_id, cdf.true_entity_id)
     print("quality @", CLUSTER_THRESHOLD, metrics)
 
-    # threshold sweep: the business decision (precision vs recall)
+    # A threshold sweep shows how an operating choice changes cluster-level results;
+    # these synthetic truth metrics are evaluation output, not production inputs.
     sweep = []
     for t in [0.5, 0.8, 0.9, 0.95, 0.99, 0.999]:
         c = linker.clustering.cluster_pairwise_predictions_at_threshold(
@@ -135,7 +146,8 @@ def main():
     sweep = pd.DataFrame(sweep)
     print(sweep.to_string(index=False))
 
-    # outputs
+    # Save the fitted parameters as JSON so incremental jobs can score with this model
+    # later without repeating unsupervised training.
     linker.misc.save_model_to_json(str(OUT / "splink_model.json"), overwrite=True)
     linker.visualisations.match_weights_chart().save(
         str(OUT / "splink_match_weights.html")
@@ -152,7 +164,8 @@ def main():
         OUT / "review_queue_splink.csv", index=False
     )
     print(f"review queue (0.5 <= p < {CLUSTER_THRESHOLD}): {len(review)} pairs")
-    # waterfall chart: why a pair matched, field by field (the explainability you show a business user)
+    # Select a representative scored pair and show how each comparison level adds to
+    # or subtracts from its evidence. This makes the model's decision inspectable.
     rows = p.sort_values("match_probability").iloc[[len(p) // 3]].to_dict("records")
     linker.visualisations.waterfall_chart(rows, filter_nulls=False).save(
         str(OUT / "splink_waterfall_example.html")

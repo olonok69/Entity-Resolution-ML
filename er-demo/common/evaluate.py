@@ -15,6 +15,7 @@ def _pairs(groups: pd.Series) -> set[tuple]:
     pairs = set()
     for _, ids in groups.groupby(groups).groups.items():
         ids = sorted(ids)
+        # Pairwise metrics count every co-clustered pair, so large clusters contribute quadratically.
         pairs.update(combinations(ids, 2))
     return pairs
 
@@ -29,7 +30,7 @@ def evaluate_clusters(record_ids, predicted_cluster, true_entity) -> dict:
     p = tp / len(pred_pairs) if pred_pairs else 0.0
     r = tp / len(true_pairs) if true_pairs else 0.0
 
-    # B-cubed
+    # B-cubed gives each record equal weight, unlike pairwise scores for large clusters.
     pred_members = df.groupby("pred").groups
     true_members = df.groupby("true").groups
     bp = br = 0.0

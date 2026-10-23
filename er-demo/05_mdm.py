@@ -75,6 +75,8 @@ def now():
 class MiniMDM:
     def __init__(self, path: Path):
         self.con = duckdb.connect(str(path))
+        # Keep source rows and the source-to-master crosswalk separate from the
+        # derived golden record, so assignments and survivorship can be inspected.
         self.con.execute("""
             CREATE TABLE IF NOT EXISTS source_record (
                 source_record_id VARCHAR PRIMARY KEY, source_system VARCHAR, first_name VARCHAR,
@@ -111,6 +113,8 @@ class MiniMDM:
         """
         values, prov = {}, {}
         for f in GOLDEN_FIELDS:
+            # Empty values cannot win survivorship. A field with no usable source
+            # remains null and has no provenance entry.
             cand = [
                 r
                 for r in records
@@ -120,6 +124,8 @@ class MiniMDM:
                 values[f], prov[f] = None, None
                 continue
             if f in RECENCY_FIELDS:
+                # Contact details can change over time; use the latest source value,
+                # with source trust as a deterministic tie-breaker.
                 best = max(
                     cand,
                     key=lambda r: (
@@ -129,7 +135,8 @@ class MiniMDM:
                 )
                 rule = "most_recent"
             else:
-                # names / dob: most frequent value across sources, ties -> trusted source, then recent
+                # Names and DOB are less volatile: choose the value supported most
+                # often, then prefer the trusted source and the most recent record.
                 freq = Counter(str(r[f]).lower() for r in cand)
                 best = max(
                     cand,
@@ -165,6 +172,7 @@ class MiniMDM:
         for rec in members.to_dict("records"):
             grouped.setdefault(rec["customer_id"], []).append(rec)
         for cid, recs in grouped.items():
+            # Rebuild only affected customers after a new link, approval, or un-merge.
             vals, prov = self.survive(recs)
             rows.append(
                 {
@@ -177,7 +185,8 @@ class MiniMDM:
                     "updated_at": ts,
                 }
             )
-        # close previous versions, replace current ones (customers with no members left just disappear)
+        # Close the current SCD2 rows before replacing them with the recomputed snapshots.
+        # A customer with no remaining source records has no replacement golden row.
         self.con.execute(
             "UPDATE golden_history SET valid_to = ? WHERE valid_to IS NULL AND customer_id IN (SELECT customer_id FROM ids)",
             [ts],
@@ -275,6 +284,8 @@ class MiniMDM:
             .set_index("source_record_id")
         )
         pairs = pairs.assign(customer_id=pairs.unique_id_l.map(xref.customer_id))
+        # Keep only the strongest candidate per incoming record; lower-ranked candidates
+        # are not attached automatically, but the strongest grey-zone candidate is reviewable.
         best = (
             pairs.sort_values("match_probability", ascending=False)
             .drop_duplicates("unique_id_r")
@@ -289,6 +300,8 @@ class MiniMDM:
                 self.link(rid, cid, p, "splink_incremental_auto")
                 stats["auto_linked"] += 1
             else:
+                # A non-auto-linked record gets its own provisional master ID, avoiding
+                # a risky merge while a steward reviews candidates in the review band.
                 cid = (
                     self.new_customer_id()
                 )  # new customer until a steward says otherwise
@@ -361,6 +374,7 @@ class MiniMDM:
         acted_at = now()
         self.con.execute("BEGIN TRANSACTION")
         try:
+            # Crosswalk, review status, audit event, and both golden records change together.
             self.con.execute(
                 "UPDATE xref SET customer_id = ?, match_probability = NULL, "
                 "match_method = 'steward_unmerged', linked_at = ? WHERE source_record_id = ?",
@@ -383,6 +397,7 @@ class MiniMDM:
 
     def erase_customer(self, customer_id):
         """Remove a customer's source data, crosswalk, current golden record, and history."""
+        # Resolve source IDs first so associated source and review rows are removed too.
         ids = [
             r[0]
             for r in self.con.execute(
@@ -411,6 +426,8 @@ def score_new_records(existing: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame
     linker = Linker(
         sdf_existing, str(RES / "splink_model.json"), log_level=logging.WARNING
     )
+    # Term-frequency tables are required for the fields whose rarity adjusts the
+    # saved model's agreement weights.
     for col in ["first_name_canon", "last_name", "email"]:
         linker.table_management.compute_tf_table(col)
     preds = linker.inference.predict_between(
@@ -451,7 +468,8 @@ def main():
     stats = mdm.incremental_load(raw_new, pairs)
     print("incremental batch:", stats)
 
-    # how good were the incremental decisions? (truth only used here)
+    # Use synthetic truth only after matching to measure the incremental decisions;
+    # it is not passed into the model or the linkage decisions.
     truth = pd.concat([raw, raw_new]).set_index("source_record_id")["true_entity_id"]
     x = (
         mdm.con.execute("SELECT source_record_id, customer_id FROM xref")

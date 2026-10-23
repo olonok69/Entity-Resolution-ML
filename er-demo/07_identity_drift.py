@@ -63,10 +63,12 @@ def carry_forward(old_ids: pd.Series, new_clusters: pd.Series, next_seq: int):
     """Give run-2 clusters the run-1 id they overlap most; record merges and splits."""
     both = pd.DataFrame({"old": old_ids, "new": new_clusters}).dropna()
     overlap = both.groupby(["new", "old"]).size().reset_index(name="n")
-    # biggest overlaps first; ties go to the older id so ids never jump to a younger key
+    # Process largest overlaps first so each old identity is retained by its largest
+    # surviving piece. Lexical ordering makes equal-size ties deterministic.
     overlap = overlap.sort_values(["n", "old"], ascending=[False, True])
     assigned, used = {}, set()
     for new, old, _ in overlap.itertuples(index=False):
+        # Assign each prior ID to at most one new cluster, resolving splits by largest overlap.
         if new not in assigned and old not in used:
             assigned[new], used = old, used | {old}
     events = []
@@ -81,6 +83,7 @@ def carry_forward(old_ids: pd.Series, new_clusters: pd.Series, next_seq: int):
                 events.append({"event": "new", "id": assigned[new], "related_id": None})
     # old ids that lost their cluster were merged into another one: keep an alias
     for old in sorted(set(old_ids.dropna()) - used):
+        # A prior ID not retained by any cluster becomes an alias to its merge destination.
         target = assigned[both[both.old == old].new.mode()[0]]
         events.append({"event": "merged_into", "id": old, "related_id": target})
     return new_clusters.map(assigned), pd.DataFrame(events)
@@ -98,6 +101,8 @@ def membership_changed(old_c: pd.Series, new_c: pd.Series) -> float:
     old_sets = old_c.groupby(old_c).groups
     new_r = new_c.loc[common]
     new_sets = new_r.groupby(new_r).groups
+    # Compare membership sets, not raw cluster labels, since label values themselves
+    # may change even when the actual group of records stays the same.
     changed = sum(
         set(old_sets[old_c[r]]) != set(new_sets[new_r[r]]) for r in common
     )
@@ -132,6 +137,8 @@ def main():
     cf2, events = carry_forward(run1_ids, c2, next_seq=c1.nunique() + 1)
 
     rows = [
+        # Sequential IDs expose renumbering; representative IDs anchor to one record;
+        # carry-forward preserves IDs by overlap. The final row is a membership-change baseline.
         {"strategy": "sequential", "drift_rate": drift(run1_ids, seq2)},
         {"strategy": "representative", "drift_rate": drift(rep1, rep2)},
         {"strategy": "carry_forward", "drift_rate": drift(run1_ids, cf2)},

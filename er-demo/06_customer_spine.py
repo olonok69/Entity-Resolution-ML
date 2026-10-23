@@ -55,9 +55,13 @@ def households(golden: pd.DataFrame, members: pd.DataFrame) -> pd.DataFrame:
     """
     g = nx.Graph()
     g.add_nodes_from(golden.customer_id)
+    # An address on any source record can connect customers, even if survivorship
+    # selected a newer address for one of their golden records.
     for pc, grp in members[members.postcode.notna() & members.address.notna()].groupby(
         "postcode"
     ):
+        # Compare street strings only within the same postcode to limit false joins
+        # and keep the address grouping work manageable.
         streets: list[str] = []  # one representative per distinct address in this postcode
         for cid, addr in zip(grp.customer_id, grp.address.str.lower()):
             node = next(
@@ -67,10 +71,14 @@ def households(golden: pd.DataFrame, members: pd.DataFrame) -> pd.DataFrame:
             if node is None:
                 streets.append(addr)
                 node = addr
+            # The address tuple is a shared graph node; customers connected through
+            # it end up in the same household component.
             g.add_edge(cid, ("ADDR", pc, node))
     surname = dict(zip(golden.customer_id, golden.last_name.str.lower()))
     rows = []
     for comp in nx.connected_components(g):
+        # Address nodes are tuples, while customer IDs are strings; ignore address
+        # nodes when assigning household membership and calculating household size.
         people = sorted(n for n in comp if isinstance(n, str))
         if not people:
             continue
@@ -96,6 +104,8 @@ def households(golden: pd.DataFrame, members: pd.DataFrame) -> pd.DataFrame:
 
 def build_hierarchy(xref: pd.DataFrame, hh: pd.DataFrame, ts: str) -> pd.DataFrame:
     """Parent-child identity hierarchy with the rule and confidence of every edge."""
+    # Store all node types in one table: households are roots, customers point to a
+    # household, and each source record points to its resolved customer.
     nodes = [
         {"node_id": h, "node_type": "HOUSEHOLD", "parent_id": None, "rule": "root", "confidence": None}
         for h in hh.household_id.unique()
@@ -139,6 +149,7 @@ def contracts(con) -> pd.DataFrame:
     }
     rows = []
     for name, sql in checks.items():
+        # Each contract query returns a violation count; zero is the only passing result.
         n = con.execute(sql).fetchone()[0]
         rows.append({"contract": name, "violations": int(n), "passed": n == 0})
     return pd.DataFrame(rows)
@@ -164,6 +175,8 @@ def main():
     con.register("hier", hier)
     con.execute("CREATE OR REPLACE TABLE household AS SELECT * FROM hh")
     con.execute("CREATE OR REPLACE TABLE identity_hierarchy AS SELECT * FROM hier")
+    # The spine is a consumer-facing projection: one row per golden customer, with
+    # source keys and lineage metadata alongside mastered attributes.
     con.execute(f"""
         CREATE OR REPLACE TABLE customer_spine AS
         SELECT g.customer_id, h.household_id, h.household_size,
@@ -190,10 +203,12 @@ def main():
 
     checks = contracts(con)
     print(checks.to_string(index=False))
+    # Stop before exporting the spine artifacts if any required relationship or
+    # classification is broken, so the failure is visible to the caller.
     if not checks.passed.all():
         raise SystemExit("data contract failed: spine not published")
 
-    # evaluation only: compare households with the generator's truth, at person level
+    # Evaluation only: use generator truth to assess household grouping, never to build it.
     truth = pd.concat(
         [
             pd.read_csv(HERE / "data/customers.csv", dtype=str),

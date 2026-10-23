@@ -187,6 +187,7 @@ def add_households(entities: list[dict], rng: random.Random) -> None:
 
 
 def main():
+    # Generate extra ground-truth people so half of the later batch can be genuinely new.
     entities = [make_entity(i) for i in range(N_ENTITIES + N_NEW_BATCH)]
     add_households(entities, random.Random(SEED + 1))
     rows, rec_no = [], 0
@@ -202,6 +203,7 @@ def main():
     new_rows = []
     for i in range(N_NEW_BATCH):
         rec_no += 1
+        # Alternate returning people and new people to make incremental matching measurable.
         ent = (
             random.choice(entities[:N_ENTITIES])
             if i % 2 == 0

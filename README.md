@@ -8,6 +8,7 @@ A laptop-sized customer identity resolution demo using synthetic UK customer rec
 
 - [Project overview and results](er-demo/README.md)
 - [The guide: run it, learn each technique step by step, FAQ](er-demo/DEMO_GUIDE.md)
+- [Code guide: every script explained block by block, linked to the code lines and the slides](er-demo/CODE_GUIDE.md)
 - [Video script](er-demo/VIDEO_SCRIPT.md) and [slide deck](er-demo/slides/customer-identity-resolution.pptx)
 
 ## Quick start

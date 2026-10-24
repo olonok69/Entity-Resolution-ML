@@ -2,11 +2,12 @@
 
 Versión en español: [DEMO_GUIDE.es.md](DEMO_GUIDE.es.md)
 
-The companion guide to the YouTube video and the slide deck. It has three jobs:
+The companion guide to the YouTube video and the slide deck. It has four jobs:
 
 1. **Run it yourself** (sections 1, 5, 6): the commands, what to open, and a short walkthrough.
 2. **Learn the ideas** (sections 2, 3, 7, 8): what each technique is, step by step with the demo's own numbers, how it scales, and answers to the common questions.
 3. **Follow the video.** The recording script is [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md): it has the chapters, timings and narration, and it walks through the slide deck in order, slide 1 to 29. Use this guide as the reference behind each chapter, not as the script.
+4. **Read the code.** [CODE_GUIDE.md](CODE_GUIDE.md) walks through every script block by block, with links to the exact lines and the slide that shows each idea.
 
 The demo uses synthetic data with known entity and household IDs. Results are useful for comparing approaches, not as production performance claims.
 
@@ -492,7 +493,7 @@ Identity drift is the same person getting a different id over time, or ids silen
 
 - **Never regenerate ids.** Carry them forward: match new clusters to old ids by record overlap.
 - **Splits:** the largest part keeps the id, the others get new ids with a `split_from` event.
-- **Merges:** the older id survives; the other is retired with an **alias** so old references still resolve.
+- **Merges:** the id that covers more of the merged records survives (ties go to the older id); the other is retired with an **alias** so old references still resolve.
 - **Measure it:** drift rate per run, splits and merges per run, and alert when they jump.
 
 ### 3.11 MLOps and feature stores
@@ -504,6 +505,8 @@ Identity drift is the same person getting a different id over time, or ids silen
 - **Retraining loop:** steward labels → golden set → retrain → gate → promote, all logged in MLflow.
 
 ## 4. Code tour
+
+This is the short tour. For the detailed, line-by-line version see [CODE_GUIDE.md](CODE_GUIDE.md).
 
 ### End-to-end flow
 
@@ -636,7 +639,7 @@ All three matchers use blocking to avoid testing every possible pair. Their scor
 
 1. `cluster()` scores and clusters a snapshot with the saved model, without retraining.
 2. Run 1 clusters the initial data. Run 2 clusters a later snapshot: 5% of records get a new phone or lose their email, and the new batch is added. Everything is re-clustered from scratch.
-3. Three id strategies are compared: `sequential()` (renumber every run), representative (a member record id), and `carry_forward()`, which gives each run-2 cluster the run-1 id it overlaps most, keeps the id for the largest part of a split, retires the younger id on a merge and records an alias.
+3. Three id strategies are compared: `sequential()` (renumber every run), representative (a member record id), and `carry_forward()`, which gives each run-2 cluster the run-1 id it overlaps most, keeps the id for the largest part of a split, on a merge keeps the id with the larger overlap (the older one on a tie), retires the other and records an alias.
 4. `drift()` reports the share of run-1 records whose id changed; `membership_changed()` gives context: how many records really moved cluster.
 
 **What to explain:** sequential numbering changes 56% of ids, the representative id 0.87%, carry-forward 0.20%, while 0.51% of records sit in a cluster that really changed. Carry-forward produced 201 new ids, 11 splits and 5 merges with aliases. Ids are a product with consumers, so their stability is a metric.

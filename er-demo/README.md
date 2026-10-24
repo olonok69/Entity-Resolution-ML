@@ -3,7 +3,7 @@
 The end-to-end customer identity-resolution pipeline behind the YouTube video: from fuzzy matching to a governed customer spine.
 Everything runs on a laptop in under a minute, on synthetic data with known truth, so every number below is measured, not claimed.
 
-For the step-by-step explanations and the common questions, see [DEMO_GUIDE.md](DEMO_GUIDE.md). For the video chapters, see [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md); the slides are in [slides/](slides/customer-identity-resolution.pptx).
+For the step-by-step explanations and the common questions, see [DEMO_GUIDE.md](DEMO_GUIDE.md). For a block-by-block walkthrough of each script, see [CODE_GUIDE.md](CODE_GUIDE.md). For the video chapters, see [VIDEO_SCRIPT.md](VIDEO_SCRIPT.md); the slides are in [slides/](slides/customer-identity-resolution.pptx).
 
 ## 1. What is in here
 

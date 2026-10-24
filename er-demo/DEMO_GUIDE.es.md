@@ -2,11 +2,12 @@
 
 English version: [DEMO_GUIDE.md](DEMO_GUIDE.md)
 
-Esta es la guía que acompaña al vídeo de YouTube y a la presentación. Tiene tres objetivos:
+Esta es la guía que acompaña al vídeo de YouTube y a la presentación. Tiene cuatro objetivos:
 
 1. **Ejecutarlo tú mismo** (secciones 1, 5 y 6): los comandos, qué abrir y un recorrido breve.
 2. **Aprender las ideas** (secciones 2, 3, 7 y 8): qué es cada técnica, paso a paso y con los números de la propia demo, cómo escala y respuestas a las preguntas habituales.
 3. **Seguir el vídeo.** El guion de grabación es [VIDEO_SCRIPT.es.md](VIDEO_SCRIPT.es.md): tiene los capítulos, los tiempos y la narración, y recorre la presentación en orden, de la diapositiva 1 a la 29. Usa esta guía como referencia detrás de cada capítulo, no como guion.
+4. **Leer el código.** [CODE_GUIDE.es.md](CODE_GUIDE.es.md) recorre cada script bloque a bloque, con enlaces a las líneas exactas y a la diapositiva que muestra cada idea.
 
 La demo usa datos sintéticos con identificadores de entidad y de hogar conocidos. Los resultados sirven para comparar enfoques, no como cifras de rendimiento en producción.
 
@@ -492,7 +493,7 @@ La deriva de identidad es que la misma persona reciba un id distinto con el tiem
 
 - **No regeneres nunca los ids.** Arrástralos: asigna los clústeres nuevos a los ids antiguos según el solapamiento de registros.
 - **Divisiones:** la parte más grande conserva el id; las demás reciben ids nuevos con un evento `split_from`.
-- **Fusiones:** sobrevive el id más antiguo; el otro se retira con un **alias** para que las referencias antiguas sigan resolviéndose.
+- **Fusiones:** sobrevive el id que cubre más registros del clúster fusionado (en caso de empate, el más antiguo); el otro se retira con un **alias** para que las referencias antiguas sigan resolviéndose.
 - **Mídela:** tasa de deriva por ejecución, divisiones y fusiones por ejecución, y una alerta cuando se disparan.
 
 ### 3.11 MLOps y feature stores
@@ -504,6 +505,8 @@ La deriva de identidad es que la misma persona reciba un id distinto con el tiem
 - **Ciclo de reentrenamiento:** etiquetas de los *data stewards* → *golden set* → reentrenar → puerta → promover, todo registrado en MLflow.
 
 ## 4. Recorrido por el código
+
+Este es el recorrido breve. Para la versión detallada, línea a línea, consulta [CODE_GUIDE.es.md](CODE_GUIDE.es.md).
 
 ### Flujo de extremo a extremo
 
@@ -636,7 +639,7 @@ Los tres comparadores usan *blocking* para no probar todos los pares posibles. S
 
 1. `cluster()` puntúa y agrupa una instantánea con el modelo guardado, sin reentrenar.
 2. La ejecución 1 agrupa los datos iniciales. La ejecución 2 agrupa una instantánea posterior: el 5% de los registros recibe un teléfono nuevo o pierde su email, y se añade el nuevo lote. Todo se vuelve a agrupar desde cero.
-3. Se comparan tres estrategias de ids: `sequential()` (renumerar en cada ejecución), representativo (el id de un registro miembro) y `carry_forward()`, que da a cada clúster de la ejecución 2 el id de la ejecución 1 con el que más se solapa, conserva el id para la parte más grande de una división, retira el id más joven en una fusión y registra un alias.
+3. Se comparan tres estrategias de ids: `sequential()` (renumerar en cada ejecución), representativo (el id de un registro miembro) y `carry_forward()`, que da a cada clúster de la ejecución 2 el id de la ejecución 1 con el que más se solapa, conserva el id para la parte más grande de una división, en una fusión conserva el id con más solapamiento (el más antiguo si hay empate), retira el otro y registra un alias.
 4. `drift()` informa de la proporción de registros de la ejecución 1 cuyo id cambió; `membership_changed()` aporta contexto: cuántos registros cambiaron de clúster de verdad.
 
 **Qué explicar:** la numeración secuencial cambia el 56% de los ids, el id representativo el 0.87% y el arrastre (*carry-forward*) el 0.20%, mientras que el 0.51% de los registros está en un clúster que cambió de verdad. El *carry-forward* produjo 201 ids nuevos, 11 divisiones y 5 fusiones con alias. Los ids son un producto con consumidores, así que su estabilidad es una métrica.

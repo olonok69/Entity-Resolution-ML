@@ -8,6 +8,7 @@ Una demo de resolución de identidad de clientes que cabe en un portátil, con r
 
 - [Visión general del proyecto y resultados](er-demo/README.md) (en inglés)
 - [La guía: ejecutarla, aprender cada técnica paso a paso y preguntas frecuentes](er-demo/DEMO_GUIDE.es.md)
+- [Guía del código: cada script explicado bloque a bloque, enlazado a las líneas de código y a las diapositivas](er-demo/CODE_GUIDE.es.md)
 - [Guion del vídeo](er-demo/VIDEO_SCRIPT.es.md) y [diapositivas](er-demo/slides/customer-identity-resolution.pptx) (en inglés)
 
 ## Inicio rápido
